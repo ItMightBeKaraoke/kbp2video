@@ -201,6 +201,7 @@ class DropLabel(QLabel):
                 item = QTableWidgetItem(os.path.basename(files[0]))
                 item.setData(Qt.UserRole, files[0])
                 item.setToolTip(files[0])
+                item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
                 for filetype, column in (('audio', 1), ('background', 2)):
                     # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
@@ -232,6 +233,7 @@ class DropLabel(QLabel):
                     match_item = QTableWidgetItem(os.path.basename(match[0]))
                     match_item.setData(Qt.UserRole, match[0])
                     match_item.setToolTip(match[0])
+                    match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                     table.setItem(current, column, match_item)
 
         else:
@@ -277,6 +279,23 @@ class DropLabel(QLabel):
     def dragLeaveEvent(self, event):
         self.parentWidget().setCurrentIndex(0)
 
+# Minor enhancement to QLabel - if it has a buddy configured, that will not
+# only allow a keyboard mnemonic to be associated, but will also focus the buddy
+# widget when the label is clicked (like the "for" attribute in html). To enable
+# an action other than focus, like clicking a checkbox, set buddyMethod to the
+# method to call on the buddy widget (in that example QCheckBox.toggle
+class ClickLabel(QLabel):
+
+    def __init__(self, buddyMethod=None, **kwargs):
+        super().__init__(**kwargs)
+        self.buddyMethod=buddyMethod
+
+    def mousePressEvent(self, event):
+        if b := self.buddy():
+            if self.buddyMethod:
+                self.buddyMethod(b)
+            else:
+                b.setFocus(Qt.MouseFocusReason)
 
 class Ui_MainWindow(QMainWindow):
 
@@ -371,7 +390,7 @@ class Ui_MainWindow(QMainWindow):
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("fades", QLabel()), gridRow, 0)
+        self.gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
             self.bind(
                 "fadeIn",
@@ -403,8 +422,6 @@ class Ui_MainWindow(QMainWindow):
             2)
 
         gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("aspectLabel", QLabel()), gridRow, 0)
         self.aspectRatioOptions = {
             "CDG, borders (25:18)": (300, True),
             "Wide, borders (16:9)": (384, True),
@@ -413,21 +430,17 @@ class Ui_MainWindow(QMainWindow):
             "Wide no border (16:9)": (341, False)
         }
         self.gridLayout.addWidget(
-            self.bind(
-                "aspectRatioBox",
-                QComboBox(
-                    sizePolicy=QSizePolicy(
-                        QSizePolicy.Maximum,
-                        QSizePolicy.Maximum))),
-            gridRow,
-            1,
-            1,
-            2)
+            self.bind("aspectLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("aspectRatioBox",QComboBox()),gridRow, 1, 1, 2)
+                    # sizePolicy=QSizePolicy(
+                    #     QSizePolicy.Maximum,
+                    #     QSizePolicy.Maximum))),
         self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
         self.aspectLabel.setBuddy(self.aspectRatioBox)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("ffmpegDivider", QLabel(
+        self.gridLayout.addWidget(self.bind("ffmpegDivider", ClickLabel(
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
@@ -446,13 +459,33 @@ class Ui_MainWindow(QMainWindow):
             clicked=self.color_choose_button)), gridRow, 2)
 
         gridRow += 1
+        self.resolutionOptions = [
+            "1500x1080",
+            "1920x1080 (1080p)",
+            "3000x2160",
+            "3840x2160 (4K)",
+            "1000x720",
+            "1280x720 (720p)",
+            "640x480"
+        ]
+        self.gridLayout.addWidget(
+            self.bind("resolutionLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("resolutionBox", QComboBox()), gridRow, 1, 1, 2)
+        self.resolutionBox.addItems(self.resolutionOptions)
+        self.resolutionLabel.setBuddy(self.resolutionBox)
 
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.label_2 = QLabel()
         self.label_2.setObjectName("label_2")
 
         self.gridLayout.addWidget(self.label_2, gridRow, 0)
 
-        gridRow += 1
+        #gridRow += 1
 
         self.retranslateUi()
 
@@ -526,6 +559,12 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "A&spect Ratio", None))
         self.ffmpegDivider.setText(QCoreApplication.translate(
             "MainWindow", "Video options", None))
+        self.resolutionLabel.setText(QCoreApplication.translate(
+            "MainWindow", "&Output Resolution", None))
+        self.overrideBGLabel.setText(QCoreApplication.translate(
+            "MainWindow", "O&verride background", None))
+        self.overrideBGLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.", None))
         # self.label_2.setText(QCoreApplication.translate(
         #    "MainWindow", "&Second Label", None))
     # retranslateUi
