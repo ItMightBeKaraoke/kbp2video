@@ -11,10 +11,13 @@ import glob
 import difflib
 import string
 import re
+import time #sleep
+import fractions
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-
+from PySide6.QtMultimedia import QMediaPlayer
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -38,6 +41,31 @@ class TrackTable(QTableWidget):
         self.supportedDropActions()
 
     # TODO: try getting delete button on the keyboard to work
+
+    def filename(self, row, column):
+        item = self.item(row, column)
+        if not item:
+            return ""
+        if res := item.data(Qt.UserRole):
+            return res
+        else:
+            return item.text()
+
+    def item_filename(self, item):
+        if res := item.data(Qt.UserRole):
+            return res
+        else:
+            return item.text()
+
+    # TODO: Make user entered and imported work the same way
+
+    def key(self, row, column):
+        item = self.item(row, column)
+        if item.data(Qt.UserRole):
+            return item.text()
+        else:
+            return FileResultSet.normalize(item.text())
+
 
     def dragEnterEvent(self, event):
         mimedata = event.mimeData()
@@ -145,7 +173,7 @@ class DropLabel(QLabel):
             isdir = os.path.isdir(path)
             if isdir and dir_expand is None:
                 result = QMessageBox.question(
-                    self,
+                    self.parentWidget(),
                     "Import folder?",
                     f"Import entire folder \"{path}\"?",
                     QMessageBox.StandardButtons(
@@ -188,16 +216,14 @@ class DropLabel(QLabel):
                     identified=identified)
         return identified
 
-    def importFiles(self, data):
-        any_kbps = False
+    def importFiles(self, data, drop=True):
+        mainWindow = self.parentWidget().parentWidget().parentWidget()
         if data and (result := self.generateFileList(data)):
-            found = {"audio": set(), "background": set()}
             # for key, files in list(getattr(result, 'kbp').items()) + list(getattr(result, 'ass').items()):
             # For now, will assume files will be taken through the whole
             # process from kbp to video. Will later support going from .ass
             # file
-            for key, files in getattr(result, 'kbp').items():
-                any_kbps = True
+            for key, files in result.kbp.items():
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
@@ -207,7 +233,13 @@ class DropLabel(QLabel):
                 item.setToolTip(files[0])
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
+                if not (outputdir := mainWindow.outputDir).text():
+                    outputdir.setText(os.path.dirname(files[0]) + "/kbp2video")
+                mainWindow.lastinputdir = os.path.dirname(files[0])
+
                 for filetype, column in (('audio', 1), ('background', 2)):
+                    if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
+                        continue
                     # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
                     current = table.row(item)
                     match = result.search(filetype, files[0])
@@ -226,7 +258,7 @@ class DropLabel(QLabel):
 
                     if len(match) > 1:
                         choice, ok = QInputDialog.getItem(
-                            self, f"Select {filetype} file to use",
+                            self.parentWidget(), f"Select {filetype} file to use",
                             f"Multiple potential {filetype} files were found for {files[0]}. Please select one, or enter a different path.",
                             match)
                         if ok:
@@ -240,14 +272,69 @@ class DropLabel(QLabel):
                     match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                     table.setItem(current, column, match_item)
 
-        if any_kbps:
+        if result.kbp:
             # Ui_MainWindow > QWidget > QStackedWidget > DropLabel
             # TODO: Seems like there should be a better way - maybe pass convertButton to constructor
-            self.parentWidget().parentWidget().parentWidget().convertButton.setEnabled(True)
+            mainWindow.convertButton.setEnabled(True)
+
+        elif result and (table := self.parentWidget().widget(0)).rowCount() > 0:
+            # Try to fill in gaps
+            # Need the item itself instead of the row due to potential reordering with sorting
+            # TODO: figure out what to do if a kbp file is in the list twice - currently it just updates the last one
+            data = dict((table.key(row, 0), table.item(row, 0)) for row in range(table.rowCount()))
+            for filetype, column in (('audio', 1), ('background', 2)):
+                if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
+                    continue
+                for key in getattr(result, filetype):
+                    if len(filenames := getattr(result, filetype)[key]) > 1:
+                        choice, ok = QInputDialog.getItem(
+                            self.parentWidget(), f"Select {filetype} file to use",
+                            f"Multiple potential {filetype} files were found with similar names. Please select one to import. If multiple are needed, rerun the import with those files after this one is completed. To skip all, hit cancel.",
+                            filenames,
+                            editable=False)
+                        if ok:
+                            filenames = [choice]
+                        else:
+                            continue
+
+                    search_results = difflib.get_close_matches(key, data, n=3, cutoff=0.6)
+
+                    # If just one file was dropped, assume it was intentional and prompt with all the kbps
+                    if not search_results and len(result.all_files(filetype)) == 1:
+                        search_results = data
+
+                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), 0), data[key]) for key in search_results):
+                        if len(match) > 1:
+                            choice, ok = QInputDialog.getItem(
+                                self.parentWidget(), "Select KBP file to use",
+                                f"Multiple potential KBP files were found for {filenames[0]}. Please select one or hit cancel to skip.",
+                                match.keys(),
+                                editable=False)
+                            if ok:
+                                match = {choice: match[choice]}
+                            else:
+                                continue
+                        if match:
+                            fname, kbp = match.popitem()
+                            current = table.item(table.indexFromItem(kbp).row(), column)
+                            if current and current.text():
+                                answer = QMessageBox.question(
+                                    self.parentWidget(),
+                                    "Replace file?",
+                                    f"Replace {filetype} file\n{table.item_filename(current)} for\n{fname}\nwith\n{filenames[0]}?",
+                                    QMessageBox.StandardButtons(
+                                        QMessageBox.Yes | QMessageBox.No))
+                                if answer != QMessageBox.Yes:
+                                    continue
+                            match_item = QTableWidgetItem(os.path.basename(filenames[0]))
+                            match_item.setData(Qt.UserRole, filenames[0])
+                            match_item.setToolTip(filenames[0])
+                            match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
+                            table.setItem(table.indexFromItem(kbp).row(), column, match_item)
 
         else:
             QMessageBox.information(
-                self, "No KBP Files Found",
+                self.parentWidget(), "No Files Found",
                 "No relevant files discovered with provided file list.")
 
     def dropEvent(self, event):
@@ -300,11 +387,27 @@ class ClickLabel(QLabel):
         self.buddyMethod=buddyMethod
 
     def mousePressEvent(self, event):
-        if b := self.buddy():
+        if (b := self.buddy()) and b.isEnabled():
             if self.buddyMethod:
                 self.buddyMethod(b)
             else:
                 b.setFocus(Qt.MouseFocusReason)
+
+class ConverterSignals(QObject):
+    finished = Signal()
+    progress = Signal(int, int)
+
+class Converter(QRunnable):
+    def __init__(self, function, *args, **kwargs):
+        super().__init__()
+        self.signals = ConverterSignals()
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs
+
+    @Slot()
+    def run(self):
+        self.function(self.signals, *self.args, **self.kwargs)
 
 class Ui_MainWindow(QMainWindow):
 
@@ -313,6 +416,7 @@ class Ui_MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.threadpool = QThreadPool()
         self.setupUi()
 
     # Convenience method for adding a Qt object as a property in self and and
@@ -383,6 +487,7 @@ class Ui_MainWindow(QMainWindow):
         self.verticalLayout.addLayout(
             self.bind("leftPaneButtons", QHBoxLayout()))
 
+        self.lastinputdir = ""
         self.leftPaneButtons.addWidget(
             self.bind("addButton", QPushButton(clicked=self.add_files_button)))
         self.leftPaneButtons.addWidget(
@@ -527,14 +632,14 @@ class Ui_MainWindow(QMainWindow):
         self.resolutionLabel.setBuddy(self.resolutionBox)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(enabled=False)), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
         self.containerOptions = {
-            "mp4": (("h264", "libvpx-vp9", "libx265", "libaom-av1"), ("aac", "mp3", "opus")),
-            "mkv": (("libvpx-vp9", "h264", "libx265", "libaom-av1"), ("flac", "opus", "aac", "mp3")),
-            "webm": (("libvpx-vp9", "libaom-av1"), ("opus",)),
+            "mp4": (("h264", "libvpx-vp9", "libx265", "libaom-av1"), ("aac", "mp3", "libopus")),
+            "mkv": (("libvpx-vp9", "h264", "libx265", "libaom-av1"), ("flac", "libopus", "aac", "mp3")),
+            "webm": (("libvpx-vp9", "libaom-av1"), ("libopus",)),
         }
         self.gridLayout.addWidget(
             self.bind("containerLabel", ClickLabel()), gridRow, 0)
@@ -576,6 +681,27 @@ class Ui_MainWindow(QMainWindow):
 
         gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 10)
+
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("generalDivider", ClickLabel(
+            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("outputDirLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("outputDir", QLineEdit()), gridRow, 1)
+        self.gridLayout.addWidget(
+            self.bind("outputDirButton", QPushButton(clicked=self.output_dir)), gridRow, 2)
+        self.outputDirLabel.setBuddy(self.outputDir)
+
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
         self.gridLayout.setRowStretch(gridRow, 30)
 
         gridRow += 1
@@ -598,9 +724,10 @@ class Ui_MainWindow(QMainWindow):
                 (
                     f"All Relevant Files, hopefully ({Ui_MainWindow.RELEVANT_FILE_FILTER})",
                     "Karaoke Builder Studio Project files (*.kbp)",
-                    "All Files (*)")))
+                    "All Files (*)")),
+            dir=self.lastinputdir)
         if result:
-            self.filedrop.importFiles(files)
+            self.filedrop.importFiles(files, drop=False)
 
     def offset_check_box(self):
         if self.overrideOffset.checkState() == Qt.Checked:
@@ -646,7 +773,50 @@ class Ui_MainWindow(QMainWindow):
             box.setMaxCount(10)
             box.addItems(self.containerOptions[self.containerBox.currentText()][idx])
 
+    def output_dir(self):
+        outputdir = QFileDialog.getExistingDirectory(self, dir=os.path.dirname(self.outputDir.text()))
+        if outputdir:
+            self.outputDir.setText(outputdir)
+
     def runConversion(self):
+        converter = Converter(self.conversion_runner)
+        # worker.signals.finished.connect
+        self.threadpool.start(converter)
+    
+    def assFile(self, kbp):
+        filename = os.path.basename(kbp)
+        # This REALLY needs to be set...
+        while not self.outputDir.text():
+            self.output_dir()
+        return self.outputDir.text() + "/" + filename[:-4].translate(str.maketrans("","",":;,'=\"")) + ".ass"
+    
+    def vidFile(self, kbp):
+        filename = os.path.basename(kbp)
+        return self.outputDir.text() + "/" + filename[:-4] + "." + self.containerBox.currentText()
+
+    def audioffmpegBitrate(self):
+        if self.acodecBox.currentText() == 'flac':
+            return ''
+        # TODO: Good defaults based on format
+        else:
+            return self.abitrateBox.text() or '-b:a 256k'
+
+    # Defining this to be invoked from a thread
+    @Slot(str, str, result=int)
+    def yesno(self, title, text):
+        return QMessageBox.question(
+            self,
+            title,
+            text,
+            QMessageBox.StandardButtons(
+                QMessageBox.Yes | QMessageBox.No))
+
+    @Slot(str, str)
+    def info(self, title, text):
+        QMessageBox.information(self, title, text)
+
+    def conversion_runner(self, signals):
+        unsupported_message = False
         assOptions = ["-f"]
         width, border = self.aspectRatioOptions[self.aspectRatioBox.currentText()]
         if width != 300:
@@ -658,15 +828,121 @@ class Ui_MainWindow(QMainWindow):
             assOptions += ["-o", f"{self.offset.value()}"]
         if self.transparencyBox.checkState() != Qt.Checked:
             assOptions += ["--no-t"]
-        print(" | ".join(assOptions))
-        ffmpegOptions = ""
-        # TODO: will use background specified, not default
-        ffmpegOptions += f"-f lavfi -i color=color={self.colorText.text()[1:]}:r=60:s={self.resolutionBox.currentText().split(' ')[0]}"
-        ffmpegOptions += " -i ADD_AUDIO_FILE_HERE"
-        ffmpegOptions += " -vf ass=\"ADD_ASS_FILE_HERE\""
-        ffmpegOptions += f" -map 0:v -map 1:a -shortest -c:a {self.acodecBox.currentText()} -b:a {self.abitrateBox.text() or '256k'}"
-        ffmpegOptions += " OUTPUT_FILE"
-        print(ffmpegOptions)
+        resolution = self.resolutionBox.currentText().split()[0]
+        for row in range(self.tableWidget.rowCount()):
+            kbp = self.tableWidget.filename(row, 0)
+            audio = self.tableWidget.filename(row, 1)
+            background = self.tableWidget.filename(row, 2)
+            if not kbp:
+                continue
+            self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
+            background_type = None
+            if not background:
+                pass
+            elif background.startswith("color:"):
+                background = background[6:].strip(" #")
+                background_type = 0
+            elif (mimename := self.filedrop.mimedb.mimeTypeForFile(background).name()).startswith('image/'):
+                background_type = 1
+            elif mimename.startswith('video/'):
+                background_type = 2
+            # bad mime type (not image/video or nonexistant file), or no background specified
+            if background_type == None:
+                background_type = 0
+                background = '000000'
+            print("kbp2ass " + " ".join(assOptions) + " " + kbp)
+            q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
+            q.start()
+            q.waitForFinished(-1)
+            data = q.readAllStandardOutput()
+            assfile = self.assFile(kbp)
+
+            # QDir is inconsistent. Needs to be static to check existence, and
+            # mkdir needs to be run from an instantiated instance in the parent
+            # directory, not worth the hassle
+            if not os.path.isdir(outdir := os.path.dirname(assfile)):
+                os.mkdir(outdir)
+
+            f = QFile(assfile)
+            if f.exists():
+                answer = QMessageBox.StandardButton(QMetaObject.invokeMethod(
+                    self,
+                    'yesno',
+                    Qt.BlockingQueuedConnection,
+                    Q_RETURN_ARG(int),
+                    Q_ARG(str, "Replace file?"),
+                    Q_ARG(str, f"Overwrite {assfile}?")))
+                if answer != QMessageBox.Yes:
+                    continue
+            if not f.open(QIODevice.WriteOnly | QIODevice.Text):
+                continue
+            out = QTextStream(f)
+            out << data
+            f.close()
+            ffmpeg_options = ["-y"]
+            base_assfile = os.path.basename(assfile)
+            if background_type == 0:
+                ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
+            elif background_type == 1:
+                bg_size = QImage(background).size()
+                ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
+            elif background_type == 2:
+                # TODO: Is there a better way to do this without pulling in more dependencies?
+                videoWidget = QVideoWidget()
+                player = QMediaPlayer(source=QUrl.fromLocalFile(background), videoOutput=videoWidget)
+                player.play()
+                time.sleep(1)
+                bg_size = videoWidget.sizeHint()
+                print(bg_size)
+                player.stop()
+                ffmpeg_options += ["-i", background]
+            ffmpeg_options += ["-i", audio]
+            if background_type == 1 or background_type == 2:
+                if not bg_size:
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info',
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Unsupported Background file"),
+                        Q_ARG(str, f"Unable to determine the resolution of file\n{background}"))
+                    continue
+                if self.overrideBGResolution.checkState == Qt.Checked and not unsupported_message:
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info',
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Unsupported Option"),
+                        Q_ARG(str, f"Override background resolution option not supported yet!"))
+                    unsupported_message = True
+                    continue
+                bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
+                ass_ratio = fractions.Fraction(width, border and 216 or 192)
+                if bg_ratio > ass_ratio:
+                    # letterbox sides
+                    ass_size = QSize(round(bg_size.height() * ass_ratio), bg_size.height())
+                    ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
+                elif bg_ratio < ass_ratio:
+                    # letterbox top/bottom
+                    ass_size = QSize(bg_size.width(), round(bg_size.width() / ass_ratio))
+                    ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
+                else:
+                    ass_size = bg_size
+                    ass_move = ""
+                ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
+            if background_type == 0:
+                ffmpeg_options += ["-vf", f"ass={base_assfile}"]
+            if background_type == 0 or background_type == 1:
+                ffmpeg_options += ["-shortest"]
+            # TODO: should pix_fmt be configurable or change default based on codec?
+            ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
+            ffmpeg_options += [self.vidFile(kbp)]
+            print("ffmpeg" + " " + " ".join(ffmpeg_options))
+            q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            q.start()
+            q.waitForFinished(-1)
+        
+        self.statusbar.showMessage("Conversion completed!")
+        signals.finished.emit()
 
     def retranslateUi(self):
         self.setWindowTitle(QCoreApplication.translate(
@@ -728,7 +1004,17 @@ class Ui_MainWindow(QMainWindow):
         self.overrideBGLabel.setText(QCoreApplication.translate(
             "MainWindow", "Override back&ground", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
-            "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.", None))
+            "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
+        self.skipBackgroundsLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Ig&nore BG files in drag/drop", None))
+        self.skipBackgroundsLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When dragging and dropping files, do not import any image or video files\nas backgrounds. This is useful if you have your output and input files\nin the same place and usually use solid color backgrounds.", None))
+        self.generalDivider.setText(QCoreApplication.translate(
+            "MainWindow", "kbp2video options", None))
+        self.outputDirLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Output Fo&lder", None))
+        self.outputDirButton.setText(QCoreApplication.translate(
+            "MainWindow", "Bro&wse...", None))
         self.convertButton.setText(QCoreApplication.translate(
             "MainWindow", "&Convert", None))
     # retranslateUi
