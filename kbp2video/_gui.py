@@ -34,8 +34,8 @@ class TrackTable(QTableWidget):
         self.setDefaultDropAction(Qt.CopyAction)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        print(self.acceptDrops())
-        print(self.supportedDropActions())
+        self.acceptDrops()
+        self.supportedDropActions()
 
     # TODO: try getting delete button on the keyboard to work
 
@@ -121,6 +121,8 @@ class DropLabel(QLabel):
         super().__init__(parent, **kwargs)
         self.setAcceptDrops(True)
         self.mimedb = QMimeDatabase()
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("font: bold 50px")
 
     def identifyFile(self, path):
         if path.casefold().endswith('.kbp'):
@@ -187,6 +189,7 @@ class DropLabel(QLabel):
         return identified
 
     def importFiles(self, data):
+        any_kbps = False
         if data and (result := self.generateFileList(data)):
             found = {"audio": set(), "background": set()}
             # for key, files in list(getattr(result, 'kbp').items()) + list(getattr(result, 'ass').items()):
@@ -194,6 +197,7 @@ class DropLabel(QLabel):
             # process from kbp to video. Will later support going from .ass
             # file
             for key, files in getattr(result, 'kbp').items():
+                any_kbps = True
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
@@ -236,9 +240,14 @@ class DropLabel(QLabel):
                     match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                     table.setItem(current, column, match_item)
 
+        if any_kbps:
+            # Ui_MainWindow > QWidget > QStackedWidget > DropLabel
+            # TODO: Seems like there should be a better way - maybe pass convertButton to constructor
+            self.parentWidget().parentWidget().parentWidget().convertButton.setEnabled(True)
+
         else:
             QMessageBox.information(
-                self, "No Files Found",
+                self, "No KBP Files Found",
                 "No relevant files discovered with provided file list.")
 
     def dropEvent(self, event):
@@ -328,6 +337,8 @@ class Ui_MainWindow(QMainWindow):
         # self.setMenuBar(self.menubar)
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
 
+        ##################### Left pane #####################
+
         self.bind(
             "horizontalLayout",
             QHBoxLayout(
@@ -338,6 +349,10 @@ class Ui_MainWindow(QMainWindow):
                     0,
                     0,
                     0)))
+
+        self.horizontalLayout.addItem(QSpacerItem(
+            20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
         self.horizontalLayout.addLayout(
             self.bind(
                 "verticalLayout",
@@ -354,7 +369,7 @@ class Ui_MainWindow(QMainWindow):
                 "filedrop",
                 DropLabel(
                     self.stackedWidget,
-                    text="Drop files here")))
+                    text="+\nDrop files here")))
 
         self.verticalLayout.addItem(QSpacerItem(
             20, 5, QSizePolicy.Expanding, QSizePolicy.Maximum))
@@ -382,12 +397,36 @@ class Ui_MainWindow(QMainWindow):
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
+        ##################### Right pane #####################
+
         self.horizontalLayout.addLayout(
             self.bind("gridLayout", QGridLayout()), stretch=0)
 
         gridRow = 0
+        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 10)
+
+        gridRow += 1
         self.gridLayout.addWidget(self.bind("assDivider", QLabel(
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+
+        gridRow += 1
+        self.aspectRatioOptions = {
+            "CDG, borders (25:18)": (300, True),
+            "Wide, borders (16:9)": (384, True),
+            "Standard, borders (4:3)": (288, True),
+            "CDG no border (3:2)": (288, False),
+            "Wide no border (16:9)": (341, False)
+        }
+        self.gridLayout.addWidget(
+            self.bind("aspectLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("aspectRatioBox",QComboBox()),gridRow, 1, 1, 2)
+                    # sizePolicy=QSizePolicy(
+                    #     QSizePolicy.Maximum,
+                    #     QSizePolicy.Maximum))),
+        self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
+        self.aspectLabel.setBuddy(self.aspectRatioBox)
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
@@ -422,22 +461,34 @@ class Ui_MainWindow(QMainWindow):
             2)
 
         gridRow += 1
-        self.aspectRatioOptions = {
-            "CDG, borders (25:18)": (300, True),
-            "Wide, borders (16:9)": (384, True),
-            "Standard, borders (4:3)": (288, True),
-            "CDG no border (3:2)": (288, False),
-            "Wide no border (16:9)": (341, False)
-        }
+        self.gridLayout.addWidget(self.bind("overrideOffset", QCheckBox(stateChanged=self.offset_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("overrideOffsetLabel", ClickLabel(buddy=self.overrideOffset, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddyMethod=QCheckBox.toggle)), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("aspectLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("aspectRatioBox",QComboBox()),gridRow, 1, 1, 2)
-                    # sizePolicy=QSizePolicy(
-                    #     QSizePolicy.Maximum,
-                    #     QSizePolicy.Maximum))),
-        self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
-        self.aspectLabel.setBuddy(self.aspectRatioBox)
+            self.bind(
+                "offset",
+                QDoubleSpinBox(
+                    minimum=-5,
+                    maximum=180,
+                    singleStep=0.05,
+                    suffix=" s",
+                    value=0,
+                    enabled=False
+                    )),
+            gridRow,
+            1)
+
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        self.offsetLabel.setBuddy(self.transparencyBox)
+
+        gridRow += 1
+        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 10)
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("ffmpegDivider", ClickLabel(
@@ -447,7 +498,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
             clicked=self.color_apply_button)), gridRow, 0)
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
-            text="#000000", inputMask="\\#HHHHHH")), gridRow, 1)
+            text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
         # TODO: Find a better way to set this to a reasonable width for 7 characters
         # minimumSizeHint is enough for about 3
@@ -480,12 +531,59 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
-        self.label_2 = QLabel()
-        self.label_2.setObjectName("label_2")
+        self.containerOptions = {
+            "mp4": (("h264", "libvpx-vp9", "libx265", "libaom-av1"), ("aac", "mp3", "opus")),
+            "mkv": (("libvpx-vp9", "h264", "libx265", "libaom-av1"), ("flac", "opus", "aac", "mp3")),
+            "webm": (("libvpx-vp9", "libaom-av1"), ("opus",)),
+        }
+        self.gridLayout.addWidget(
+            self.bind("containerLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("containerBox", QComboBox()), gridRow, 1, 1, 2)
+        self.containerBox.addItems(self.containerOptions.keys())
+        self.containerLabel.setBuddy(self.containerBox)
 
-        self.gridLayout.addWidget(self.label_2, gridRow, 0)
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("vcodecLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("vcodecBox", QComboBox()), gridRow, 1, 1, 2)
+        self.vcodecBox.addItems(self.containerOptions["mp4"][0])
+        self.vcodecLabel.setBuddy(self.vcodecBox)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("acodecLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("acodecBox", QComboBox()), gridRow, 1, 1, 2)
+        self.acodecBox.addItems(self.containerOptions["mp4"][1])
+        self.acodecLabel.setBuddy(self.acodecBox)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("abitrateLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")))), gridRow, 1, 1, 2)
+        self.abitrateLabel.setBuddy(self.abitrateBox)
+
+        self.containerBox.currentTextChanged.connect(self.updateCodecs)
 
         #gridRow += 1
+        #self.label_2 = QLabel()
+        #self.label_2.setObjectName("label_2")
+
+        #self.gridLayout.addWidget(self.label_2, gridRow, 0)
+
+        gridRow += 1
+        self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 30)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("convertButton", QPushButton(enabled=False, clicked=self.runConversion)), gridRow, 0, 1, 3)
+
+        self.horizontalLayout.addItem(QSpacerItem(
+            20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         self.retranslateUi()
 
@@ -503,6 +601,12 @@ class Ui_MainWindow(QMainWindow):
                     "All Files (*)")))
         if result:
             self.filedrop.importFiles(files)
+
+    def offset_check_box(self):
+        if self.overrideOffset.checkState() == Qt.Checked:
+            self.offset.setEnabled(True)
+        else:
+            self.offset.setEnabled(False)
 
     def color_apply_button(self):
         for row in range(self.tableWidget.rowCount()):
@@ -522,9 +626,47 @@ class Ui_MainWindow(QMainWindow):
                 set(x.row() for x in self.tableWidget.selectedIndexes()),
                 reverse=True):
             self.tableWidget.removeRow(row)
+        if self.tableWidget.rowCount() == 0:
+            self.convertButton.setEnabled(False)
 
     def add_row_button(self):
         self.tableWidget.setRowCount(self.tableWidget.rowCount() + 1)
+        self.convertButton.setEnabled(True)
+
+    def updateColor(self):
+        bgcolor = QColor.fromString(self.colorText.text())
+        textcolor = "#000000"
+        if bgcolor.lightness() <= 128:
+            textcolor = "#FFFFFF"
+        self.colorText.setStyleSheet(f"color: {textcolor}; background-color: {bgcolor.name()}")
+
+    def updateCodecs(self):
+        for idx, box in enumerate((self.vcodecBox, self.acodecBox)):
+            box.setMaxCount(0)
+            box.setMaxCount(10)
+            box.addItems(self.containerOptions[self.containerBox.currentText()][idx])
+
+    def runConversion(self):
+        assOptions = ["-f"]
+        width, border = self.aspectRatioOptions[self.aspectRatioBox.currentText()]
+        if width != 300:
+            assOptions += ["-W", f"{width}"]
+        if not border:
+            assOptions += ["--no-b"]
+        assOptions += ["-F", f"{self.fadeIn.value()},{self.fadeOut.value()}"]
+        if self.overrideOffset.checkState() == Qt.Checked:
+            assOptions += ["-o", f"{self.offset.value()}"]
+        if self.transparencyBox.checkState() != Qt.Checked:
+            assOptions += ["--no-t"]
+        print(" | ".join(assOptions))
+        ffmpegOptions = ""
+        # TODO: will use background specified, not default
+        ffmpegOptions += f"-f lavfi -i color=color={self.colorText.text()[1:]}:r=60:s={self.resolutionBox.currentText().split(' ')[0]}"
+        ffmpegOptions += " -i ADD_AUDIO_FILE_HERE"
+        ffmpegOptions += " -vf ass=\"ADD_ASS_FILE_HERE\""
+        ffmpegOptions += f" -map 0:v -map 1:a -shortest -c:a {self.acodecBox.currentText()} -b:a {self.abitrateBox.text() or '256k'}"
+        ffmpegOptions += " OUTPUT_FILE"
+        print(ffmpegOptions)
 
     def retranslateUi(self):
         self.setWindowTitle(QCoreApplication.translate(
@@ -532,7 +674,7 @@ class Ui_MainWindow(QMainWindow):
         self.addButton.setText(QCoreApplication.translate(
             "MainWindow", "&Add Files...", None))
         self.colorChooseButton.setText(QCoreApplication.translate(
-            "MainWindow", "&Choose...", None))
+            "MainWindow", "C&hoose...", None))
         self.colorChooseButton.setToolTip(QCoreApplication.translate(
             "MainWindow", "Choose a background color with a color picker", None))
         self.colorApplyButton.setText(QCoreApplication.translate(
@@ -545,7 +687,7 @@ class Ui_MainWindow(QMainWindow):
         self.removeButton.setText(QCoreApplication.translate(
             "MainWindow", "&Remove Selected", None))
         self.addRowButton.setText(QCoreApplication.translate(
-            "MainWindow", "A&dd empty row", None))
+            "MainWindow", "Add &empty row", None))
         self.dragDropDescription.setText(
             QCoreApplication.translate(
                 "MainWindow",
@@ -557,16 +699,38 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "&Fade In/Out", None))
         self.aspectLabel.setText(QCoreApplication.translate(
             "MainWindow", "A&spect Ratio", None))
+        self.transparencyLabel.setText(QCoreApplication.translate(
+            "MainWindow", "&Draw BG color transparent", None))
+        self.transparencyLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When using palette index 0 as a font or border color in KBS, make that color\ntransparent in the resulting .ass file. This improves compatibility with\ndrawing appearing and overlapping text. ", None))
+        self.overrideOffsetLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Overr&ide Timestamp Offset", None))
+        self.overrideOffsetLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Set an offset to be applied to every timestamp in the KBP file when converting\nto .ass. If not overridden, the setting from within KBS is used if it can be located.", None))
+        self.offsetLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Timesta&mp Offset", None))
         self.ffmpegDivider.setText(QCoreApplication.translate(
             "MainWindow", "Video options", None))
         self.resolutionLabel.setText(QCoreApplication.translate(
             "MainWindow", "&Output Resolution", None))
+        self.containerLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Output File &Type", None))
+        self.vcodecLabel.setText(QCoreApplication.translate(
+            "MainWindow", "&Video Codec", None))
+        self.acodecLabel.setText(QCoreApplication.translate(
+            "MainWindow", "A&udio Codec", None))
+        self.abitrateLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Audio &Bitrate", None))
+        self.abitrateLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Enter a number in bits per second, or suffixed with a k for kilobits per second.", None))
+        self.abitrateBox.setPlaceholderText(QCoreApplication.translate(
+            "MainWindow", "Leave blank for default", None))
         self.overrideBGLabel.setText(QCoreApplication.translate(
-            "MainWindow", "O&verride background", None))
+            "MainWindow", "Override back&ground", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.", None))
-        # self.label_2.setText(QCoreApplication.translate(
-        #    "MainWindow", "&Second Label", None))
+        self.convertButton.setText(QCoreApplication.translate(
+            "MainWindow", "&Convert", None))
     # retranslateUi
 
 
