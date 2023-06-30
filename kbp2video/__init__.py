@@ -362,9 +362,11 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", u"&Second Label", None))
     # retranslateUi
 
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
+def run(argv=sys.argv):
+    app = QApplication(argv)
     window = Ui_MainWindow()
     window.show()
     sys.exit(app.exec())
+
+if __name__ == '__main__':
+    run(sys.argv)

@@ -1,0 +1,11 @@
+[project]
+name = "kbp2video"
+version = "0.0.1"
+dependencies = [
+    "PySide6"
+]
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+[tool.setuptools.packages.find]
+include = ["kbp2video"]
