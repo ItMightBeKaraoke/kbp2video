@@ -1,2 +1,2 @@
-from . import run
+from ._gui import run
 run()

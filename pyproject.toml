@@ -5,7 +5,7 @@ dependencies = [
     "PySide6"
 ]
 [project.scripts]
-kbp2video = "kbp2video:run"
+kbp2video = "kbp2video._gui:run"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
