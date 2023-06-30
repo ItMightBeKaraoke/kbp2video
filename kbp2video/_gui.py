@@ -570,7 +570,6 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("overrideOffsetLabel", ClickLabel(buddy=self.overrideOffset, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddyMethod=QCheckBox.toggle)), gridRow, 0)
         self.gridLayout.addWidget(
             self.bind(
                 "offset",
@@ -584,12 +583,11 @@ class Ui_MainWindow(QMainWindow):
                     )),
             gridRow,
             1)
+        self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddy=self.offset)), gridRow, 0)
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked)), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        self.offsetLabel.setBuddy(self.transparencyBox)
 
         gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
