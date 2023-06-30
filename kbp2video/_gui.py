@@ -16,6 +16,8 @@ from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
 
 
+# This should *probably* be redone as a QTableView with a proxy to better
+# manage the data and separate it from display
 class TrackTable(QTableWidget):
 
     def __init__(self, **kwargs):
@@ -201,6 +203,8 @@ class DropLabel(QLabel):
                 item.setToolTip(files[0])
                 table.setItem(current, 0, item)
                 for filetype, column in (('audio', 1), ('background', 2)):
+                    # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
+                    current = table.row(item)
                     match = result.search(filetype, files[0])
 
                     # If there happens to be only one kbp, assume all selected audio/backgrounds were intended for it
@@ -225,7 +229,6 @@ class DropLabel(QLabel):
                         else:
                             continue
 
-                    # TODO: FIX MISMATCH DUE TO SORT!
                     match_item = QTableWidgetItem(os.path.basename(match[0]))
                     match_item.setData(Qt.UserRole, match[0])
                     match_item.setToolTip(match[0])
