@@ -859,7 +859,7 @@ class Ui_MainWindow(QMainWindow):
                     'info', 
                     Qt.AutoConnection,
                     Q_ARG(str, "Failed to process kbp"),
-                    Q_ARG(str, f"Failed to procee .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+                    Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
                 continue
             assfile = self.assFile(kbp)
 
