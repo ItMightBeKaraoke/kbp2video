@@ -853,6 +853,14 @@ class Ui_MainWindow(QMainWindow):
             q.start()
             q.waitForFinished(-1)
             data = q.readAllStandardOutput()
+            if q.exitStatus() != QProcess.NormalExit or data.isEmpty():
+                QMetaObject.invokeMethod(
+                    self,
+                    'info', 
+                    Qt.AutoConnection,
+                    Q_ARG(str, "Failed to process kbp"),
+                    Q_ARG(str, f"Failed to procee .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+                continue
             assfile = self.assFile(kbp)
 
             # QDir is inconsistent. Needs to be static to check existence, and
