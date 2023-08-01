@@ -27,6 +27,8 @@ class TrackTable(QTableWidget):
         super().__init__(0, 3, **kwargs)
         self.setObjectName("tableWidget")
         self.setAcceptDrops(True)
+        # If this is enabled, user gets stuck in the widget. Arrow keys can still be used to navigate within it
+        self.setTabKeyNavigation(False)
         # TODO: update when support for both is included
         # self.setHorizontalHeaderLabels(["KBP/ASS", "Audio", "Background"])
         self.setHorizontalHeaderLabels(["KBP", "Audio", "Background"])
