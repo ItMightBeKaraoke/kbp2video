@@ -862,6 +862,7 @@ class Ui_MainWindow(QMainWindow):
         unsupported_message = False
         assOptions = ["-f"]
         width, border = self.aspectRatioOptions[self.aspectRatioBox.currentText()]
+        default_bg = self.colorText.text().strip(" #")
         if width != 300:
             assOptions += ["-W", f"{width}"]
         if not border:
@@ -892,7 +893,7 @@ class Ui_MainWindow(QMainWindow):
             # bad mime type (not image/video or nonexistant file), or no background specified
             if background_type == None:
                 background_type = 0
-                background = '000000'
+                background = default_bg
             print("kbp2ass " + " ".join(assOptions) + " " + kbp)
             q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
             q.start()
