@@ -951,6 +951,7 @@ class Ui_MainWindow(QMainWindow):
             if background_type == 0:
                 #ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
                 background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi")
+                bg_size = QSize(*(int(x) for x in resolution.split('x')))
             elif background_type == 1:
                 bg_size = QImage(background).size()
                 #ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
@@ -959,7 +960,6 @@ class Ui_MainWindow(QMainWindow):
                 # Pull the dimensions of the first video stream found in the file
                 bginfo = ffmpeg.probe(background)
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
-                print(bg_size)
                 #ffmpeg_options += ["-i", background]
                 background_video = ffmpeg.input(background).video
             #ffmpeg_options += ["-i", audio]
@@ -982,27 +982,25 @@ class Ui_MainWindow(QMainWindow):
                         Q_ARG(str, f"Override background resolution option not supported yet!"))
                     unsupported_message = True
                     continue
-                bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
-                ass_ratio = fractions.Fraction(width, border and 216 or 192)
-                if bg_ratio > ass_ratio:
-                    # letterbox sides
-                    ass_size = QSize(round(bg_size.height() * ass_ratio), bg_size.height())
-                    # ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
-                    ass_move = {"x": round((bg_size.width() - ass_size.width())/2)}
-                elif bg_ratio < ass_ratio:
-                    # letterbox top/bottom
-                    ass_size = QSize(bg_size.width(), round(bg_size.width() / ass_ratio))
-                    # ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
-                    ass_move = {"y": round((bg_size.height() - ass_size.height())/2)}
-                else:
-                    ass_size = bg_size
-                    # ass_move = ""
-                    ass_move = {}
 
-            if background_type == 0 or not ass_move:
-                # ffmpeg_options += ["-vf", f"ass={base_assfile}"]
-                filtered_video = background_video.filter_("ass", base_assfile)
+            bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
+            ass_ratio = fractions.Fraction(width, border and 216 or 192)
+            if bg_ratio > ass_ratio:
+                # letterbox sides
+                ass_size = QSize(round(bg_size.height() * ass_ratio), bg_size.height())
+                # ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
+                ass_move = {"x": round((bg_size.width() - ass_size.width())/2)}
+            elif bg_ratio < ass_ratio:
+                # letterbox top/bottom
+                ass_size = QSize(bg_size.width(), round(bg_size.width() / ass_ratio))
+                # ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
+                ass_move = {"y": round((bg_size.height() - ass_size.height())/2)}
             else:
+                ass_size = bg_size
+                # ass_move = ""
+                ass_move = {}
+
+            if ass_move:
                 # ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
                 filtered_video = background_video.overlay(
                     ffmpeg_color(color="000000@0", r=60, s=f"{ass_size.width()}x{ass_size.height()}")
@@ -1011,6 +1009,9 @@ class Ui_MainWindow(QMainWindow):
                     eof_action="pass",
                     **ass_move
                 )
+            else:
+                # ffmpeg_options += ["-vf", f"ass={base_assfile}"]
+                filtered_video = background_video.filter_("ass", base_assfile)
             if background_type == 0 or background_type == 1:
                 #ffmpeg_options += ["-shortest"]
                 output_options["shortest"] = None
