@@ -17,6 +17,7 @@ from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
 from .utils import ClickLabel
+from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
 
@@ -25,14 +26,15 @@ from ._ffmpegcolor import ffmpeg_color
 class TrackTable(QTableWidget):
 
     def __init__(self, **kwargs):
-        super().__init__(0, 3, **kwargs)
+        super().__init__(0, 4, **kwargs)
         self.setObjectName("tableWidget")
         self.setAcceptDrops(True)
         # If this is enabled, user gets stuck in the widget. Arrow keys can still be used to navigate within it
         self.setTabKeyNavigation(False)
         # TODO: update when support for both is included
         # self.setHorizontalHeaderLabels(["KBP/ASS", "Audio", "Background"])
-        self.setHorizontalHeaderLabels(["KBP", "Audio", "Background"])
+        self.setHorizontalHeaderLabels(["KBP", "Audio", "Background", "Advanced"])
+        self.hideColumn(3)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setDragEnabled(False)
         self.setSortingEnabled(True)
@@ -72,8 +74,10 @@ class TrackTable(QTableWidget):
         mainWindow = self.parentWidget().parentWidget().parentWidget()
         if self.selectedRanges() == []:
             mainWindow.removeButton.setEnabled(False)
+            mainWindow.advancedButton.setEnabled(False)
         else:
             mainWindow.removeButton.setEnabled(True)
+            mainWindow.advancedButton.setEnabled(True)
 
     # TODO: Make user entered and imported work the same way
 
@@ -506,6 +510,12 @@ class Ui_MainWindow(QMainWindow):
                 "addRowButton", QPushButton(
                     clicked=self.add_row_button)))
 
+        self.leftPaneButtons.addWidget(
+            self.bind(
+                "advancedButton", QPushButton(
+                    clicked=self.advanced_button,
+                    enabled=False))) 
+
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -758,6 +768,9 @@ class Ui_MainWindow(QMainWindow):
             if not (cur := self.tableWidget.item(row, 2)) or not cur.text():
                 self.tableWidget.setItem(row, 2, QTableWidgetItem(
                     f"color: {self.colorText.text()}"))
+
+    def advanced_button(self):
+        AdvancedEditor.showAdvancedEditor(self.tableWidget)
 
     def color_choose_button(self):
         result = QColorDialog.getColor(
@@ -1022,6 +1035,8 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "KBP to Video", None))
         self.addButton.setText(QCoreApplication.translate(
             "MainWindow", "&Add Files...", None))
+        self.advancedButton.setText(QCoreApplication.translate(
+            "MainWindow", "Set Intro&/Outro...", None))
         self.colorChooseButton.setText(QCoreApplication.translate(
             "MainWindow", "C&hoose...", None))
         self.colorChooseButton.setToolTip(QCoreApplication.translate(
