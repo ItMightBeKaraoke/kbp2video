@@ -16,8 +16,9 @@ import fractions
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
+from .utils import ClickLabel
+import ffmpeg
+from ._ffmpegcolor import ffmpeg_color
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -41,8 +42,16 @@ class TrackTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.acceptDrops()
         self.supportedDropActions()
+        self.itemSelectionChanged.connect(self.handle_selection_change)
 
     # TODO: try getting delete button on the keyboard to work
+
+    # Auto-vivify missing items
+    def item(self, row, column):
+        if (i := super().item(row, column)) is None:
+            i = QTableWidgetItem("")
+            self.setItem(row, column, i)
+        return i
 
     def filename(self, row, column):
         item = self.item(row, column)
@@ -58,6 +67,13 @@ class TrackTable(QTableWidget):
             return res
         else:
             return item.text()
+
+    def handle_selection_change(self):
+        mainWindow = self.parentWidget().parentWidget().parentWidget()
+        if self.selectedRanges() == []:
+            mainWindow.removeButton.setEnabled(False)
+        else:
+            mainWindow.removeButton.setEnabled(True)
 
     # TODO: Make user entered and imported work the same way
 
@@ -377,24 +393,6 @@ class DropLabel(QLabel):
     def dragLeaveEvent(self, event):
         self.parentWidget().setCurrentIndex(0)
 
-# Minor enhancement to QLabel - if it has a buddy configured, that will not
-# only allow a keyboard mnemonic to be associated, but will also focus the buddy
-# widget when the label is clicked (like the "for" attribute in html). To enable
-# an action other than focus, like clicking a checkbox, set buddyMethod to the
-# method to call on the buddy widget (in that example QCheckBox.toggle
-class ClickLabel(QLabel):
-
-    def __init__(self, buddyMethod=None, **kwargs):
-        super().__init__(**kwargs)
-        self.buddyMethod=buddyMethod
-
-    def mousePressEvent(self, event):
-        if (b := self.buddy()) and b.isEnabled():
-            if self.buddyMethod:
-                self.buddyMethod(b)
-            else:
-                b.setFocus(Qt.MouseFocusReason)
-
 class ConverterSignals(QObject):
     finished = Signal()
     progress = Signal(int, int)
@@ -501,7 +499,8 @@ class Ui_MainWindow(QMainWindow):
         self.leftPaneButtons.addWidget(
             self.bind(
                 "removeButton", QPushButton(
-                    clicked=self.remove_files_button)))
+                    clicked=self.remove_files_button,
+                    enabled=False)))
         self.leftPaneButtons.addWidget(
             self.bind(
                 "addRowButton", QPushButton(
@@ -839,10 +838,12 @@ class Ui_MainWindow(QMainWindow):
 
     def audioffmpegBitrate(self):
         if self.acodecBox.currentText() == 'flac':
-            return ''
+            # return ''
+            return {}
         # TODO: Good defaults based on format
         else:
-            return self.abitrateBox.text() or '-b:a 256k'
+            #return self.abitrateBox.text() or '-b:a 256k' # This couldn't have been working before for manually entered
+            return {"audio_bitrate": self.abitrateBox.text() or '256k'}
 
     # Defining this to be invoked from a thread
     @Slot(str, str, result=int)
@@ -931,24 +932,25 @@ class Ui_MainWindow(QMainWindow):
             out = QTextStream(f)
             out << data
             f.close()
-            ffmpeg_options = ["-y"]
+            #ffmpeg_options = ["-y"]
+            output_options = {}
             base_assfile = os.path.basename(assfile)
             if background_type == 0:
-                ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
+                #ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
+                background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi")
             elif background_type == 1:
                 bg_size = QImage(background).size()
-                ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
+                #ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
+                background_video = ffmpeg.input(background, loop=1, framerate=60)
             elif background_type == 2:
-                # TODO: Is there a better way to do this without pulling in more dependencies?
-                videoWidget = QVideoWidget()
-                player = QMediaPlayer(source=QUrl.fromLocalFile(background), videoOutput=videoWidget)
-                player.play()
-                time.sleep(1)
-                bg_size = videoWidget.sizeHint()
+                # Pull the dimensions of the first video stream found in the file
+                bginfo = ffmpeg.probe(background)
+                bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
                 print(bg_size)
-                player.stop()
-                ffmpeg_options += ["-i", background]
-            ffmpeg_options += ["-i", audio]
+                #ffmpeg_options += ["-i", background]
+                background_video = ffmpeg.input(background).video
+            #ffmpeg_options += ["-i", audio]
+            audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
                 if not bg_size:
                     QMetaObject.invokeMethod(
@@ -972,24 +974,43 @@ class Ui_MainWindow(QMainWindow):
                 if bg_ratio > ass_ratio:
                     # letterbox sides
                     ass_size = QSize(round(bg_size.height() * ass_ratio), bg_size.height())
-                    ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
+                    # ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
+                    ass_move = {"x": round((bg_size.width() - ass_size.width())/2)}
                 elif bg_ratio < ass_ratio:
                     # letterbox top/bottom
                     ass_size = QSize(bg_size.width(), round(bg_size.width() / ass_ratio))
-                    ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
+                    # ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
+                    ass_move = {"y": round((bg_size.height() - ass_size.height())/2)}
                 else:
                     ass_size = bg_size
-                    ass_move = ""
-                ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
-            if background_type == 0:
-                ffmpeg_options += ["-vf", f"ass={base_assfile}"]
+                    # ass_move = ""
+                    ass_move = {}
+
+            if background_type == 0 or not ass_move:
+                # ffmpeg_options += ["-vf", f"ass={base_assfile}"]
+                filtered_video = background_video.filter_("ass", base_assfile)
+            else:
+                # ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
+                filtered_video = background_video.overlay(
+                    ffmpeg_color(color="000000@0", r=60, s=f"{ass_size.width()}x{ass_size.height()}")
+                        .filter_("format", "rgba")
+                        .filter_("ass", base_assfile, alpha=1),
+                    eof_action="pass",
+                    **ass_move
+                )
             if background_type == 0 or background_type == 1:
-                ffmpeg_options += ["-shortest"]
+                #ffmpeg_options += ["-shortest"]
+                output_options["shortest"] = None
             # TODO: should pix_fmt be configurable or change default based on codec?
-            ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
-            ffmpeg_options += [self.vidFile(kbp)]
+            #ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
+            output_options.update(self.audioffmpegBitrate())
+            output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
+            # ffmpeg_options += [self.vidFile(kbp)]
+            # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
+            ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print("ffmpeg" + " " + " ".join(ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            # cwd= , overwrite_output=True
             q.start()
             q.waitForFinished(-1)
         
