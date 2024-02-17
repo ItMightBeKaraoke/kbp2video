@@ -16,7 +16,7 @@ import fractions
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-from .utils import ClickLabel
+from .utils import ClickLabel, bool2check, check2bool
 from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
@@ -549,7 +549,7 @@ class Ui_MainWindow(QMainWindow):
                     #     QSizePolicy.Maximum))),
         self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
         self.aspectLabel.setBuddy(self.aspectRatioBox)
-        self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        #self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
@@ -561,7 +561,7 @@ class Ui_MainWindow(QMainWindow):
                     maximum=5000,
                     singleStep=10,
                     suffix=" ms",
-                    value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
+                    #value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
                     sizePolicy=QSizePolicy(
                         QSizePolicy.Maximum,
                         QSizePolicy.Maximum))),
@@ -576,7 +576,7 @@ class Ui_MainWindow(QMainWindow):
                     maximum=5000,
                     singleStep=10,
                     suffix=" ms",
-                    value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
+                    #value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
                     sizePolicy=QSizePolicy(
                         QSizePolicy.Maximum,
                         QSizePolicy.Maximum))),
@@ -596,17 +596,18 @@ class Ui_MainWindow(QMainWindow):
                     maximum=180,
                     singleStep=0.05,
                     suffix=" s",
-                    value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
+                    #value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
                     enabled=False
                     )),
             gridRow,
             1)
         self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddy=self.offset)), gridRow, 0)
 
-        self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
+        #self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
@@ -623,7 +624,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
             text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
-        self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+        #self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
         # TODO: Find a better way to set this to a reasonable width for 7 characters
         # minimumSizeHint is enough for about 3
@@ -649,7 +650,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("resolutionBox", QComboBox()), gridRow, 1, 1, 2)
         self.resolutionBox.addItems(self.resolutionOptions)
-        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
         self.resolutionLabel.setBuddy(self.resolutionBox)
 
         gridRow += 1
@@ -669,7 +670,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("containerBox", QComboBox()), gridRow, 1, 1, 2)
         self.containerBox.addItems(self.containerOptions.keys())
-        self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        #self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
         self.containerLabel.setBuddy(self.containerBox)
 
         gridRow += 1
@@ -677,9 +678,22 @@ class Ui_MainWindow(QMainWindow):
             self.bind("vcodecLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
             self.bind("vcodecBox", QComboBox()), gridRow, 1, 1, 2)
-        self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
-        self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        #self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        #self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
         self.vcodecLabel.setBuddy(self.vcodecBox)
+
+        gridRow += 1
+        # TODO: implement feature
+        self.gridLayout.addWidget(self.bind("lossless", QCheckBox(stateChanged=self.lossless_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("lossless", QCheckBox(checkState=Qt.Checked if self.settings.value("video/lossless", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("losslessLabel", ClickLabel(buddy=self.lossless, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("qualityLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, value=23, tickInterval=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
+        self.qualityLabel.setBuddy(self.quality)
 
         gridRow += 1
         self.gridLayout.addWidget(
@@ -687,14 +701,16 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("acodecBox", QComboBox()), gridRow, 1, 1, 2)
         self.acodecBox.addItems(self.containerOptions[self.containerBox.currentText()][1])
-        self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        #self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
         self.acodecLabel.setBuddy(self.acodecBox)
 
         gridRow += 1
         self.gridLayout.addWidget(
             self.bind("abitrateLabel", ClickLabel()), gridRow, 0)
+        #self.gridLayout.addWidget(
+        #    self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
         self.gridLayout.addWidget(
-            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
+            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")))), gridRow, 1, 1, 2)
         self.abitrateLabel.setBuddy(self.abitrateBox)
 
         self.containerBox.currentTextChanged.connect(self.updateCodecs)
@@ -714,6 +730,11 @@ class Ui_MainWindow(QMainWindow):
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
+        # TODO: implement feature
+        self.gridLayout.addWidget(self.bind("relative", QCheckBox(stateChanged=self.relative_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("relativeLabel", ClickLabel(buddy=self.relative, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.gridLayout.addWidget(
             self.bind("outputDirLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
@@ -723,8 +744,17 @@ class Ui_MainWindow(QMainWindow):
         self.outputDirLabel.setBuddy(self.outputDir)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox(checkState=Qt.Checked if self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox(checkState=Qt.Checked if self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 10)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("resetButton", QPushButton(clicked=self.reset_settings, sizePolicy=QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum))), gridRow, 0, 1, 3, alignment=Qt.AlignCenter)
 
         gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
@@ -736,6 +766,8 @@ class Ui_MainWindow(QMainWindow):
 
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+        self.loadSettings()
 
         self.retranslateUi()
 
@@ -758,10 +790,32 @@ class Ui_MainWindow(QMainWindow):
     def offset_check_box(self, *_ignored, setState=None):
         if setState != None:
             self.overrideOffset.setCheckState(setState)
-        if self.overrideOffset.checkState() == Qt.Checked:
+        if check2bool(self.overrideOffset):
             self.offset.setEnabled(True)
         else:
             self.offset.setEnabled(False)
+
+    def lossless_check_box(self, *_ignored, setState=None):
+        if setState != None:
+            self.quality.setCheckState(setState)
+        if not check2bool(self.lossless):
+            self.quality.setEnabled(True)
+        else:
+            self.quality.setEnabled(False)
+
+    def relative_check_box(self, *_ignored, setState=None):
+        pass
+        # if setState != None:
+        #     self.quality.setCheckState(setState)
+        # if self.lossless.checkState() == Qt.Unchecked:
+        #     self.quality.setEnabled(True)
+        # else:
+        #     self.quality.setEnabled(False)
+
+    def reset_settings(self):
+        if QMessageBox.Yes == QMessageBox.question(self, "Reset Settings?", "Reset all settings above back to their defaults?"):
+            self.settings.clear()
+            self.loadSettings()
 
     def color_apply_button(self):
         for row in range(self.tableWidget.rowCount()):
@@ -817,20 +871,39 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/fade_in": self.fadeIn.value(),
             "subtitle/fade_out": self.fadeOut.value(),
             "subtitle/offset": self.offset.value(),
-            "subtitle/override_offset": True if self.overrideOffset.checkState() == Qt.Checked else False,
-            "subtitle/transparent_bg": True if self.transparencyBox.checkState() == Qt.Checked else False,
+            "subtitle/override_offset": check2bool(self.overrideOffset),
+            "subtitle/transparent_bg": check2bool(self.transparencyBox),
             "video/background_color": self.colorText.text(),
             "video/output_resolution_index": self.resolutionBox.currentIndex(),
-            #"overrideBGResolution": True if self.overrideBGResolution.checkState() == Qt.Checked else False,
+            "overrideBGResolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
             "video/video_codec_index": self.vcodecBox.currentIndex(),
             "video/audio_codec_index": self.acodecBox.currentIndex(),
             "video/audio_bitrate": self.abitrateBox.text(),
-            "video/ignore_bg_files_drag_drop": True if self.skipBackgrounds.checkState() == Qt.Checked else False,
+            "video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
         }
         for setting, value in to_save.items():
             self.settings.setValue(setting, value)
         self.settings.sync()
+
+    def loadSettings(self):
+        self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        self.fadeIn.setValue(self.settings.value("subtitle/fade_in", type=int, defaultValue=50))
+        self.fadeOut.setValue(self.settings.value("subtitle/fade_out", type=int, defaultValue=50))
+        self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
+        self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
+        self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
+        self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
+        self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        self.lossless.setCheckState(bool2check(self.settings.value("video/lossless", type=bool, defaultValue=False)))
+        self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        self.abitrateBox.setText(self.settings.value("video/audio_bitrate", type=str, defaultValue=""))
+        self.skipBackgrounds.setCheckState(bool2check(self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        self.saveSettings()  # Save to disk any new defaults that were used
 
     def runConversion(self):
         self.saveSettings()
@@ -1018,6 +1091,20 @@ class Ui_MainWindow(QMainWindow):
             # TODO: should pix_fmt be configurable or change default based on codec?
             #ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
             output_options.update(self.audioffmpegBitrate())
+
+            if check2bool(self.lossless):
+                if self.vcodecBox.currentText() == "libvpx-vp9":
+                    ouput_options["lossless"]=1
+                elif self.vcodecBox.currentText() == "libx265":
+                    output_options["x265-params"]="lossless=1"
+                else:
+                    output_options["crf"]=0
+            else:
+                output_options["crf"]=self.quality.value()
+
+            if self.vcodecBox.currentText() == "libvpx-vp9":
+                output_options["video_bitrate"] = 0 # Required for the format to use CRF only
+
             output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
             # ffmpeg_options += [self.vidFile(kbp)]
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
@@ -1094,6 +1181,14 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Override back&ground", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
+        self.losslessLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Lossless video", None))
+        self.lossless.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Use lossless quality settings on video (may create very large files).\nFor lossless audio and video, use an mkv container with this checked and flac codec for audio.", None))
+        self.qualityLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Video &Quality", None))
+        self.quality.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Quality of the output video.\nAt the very left is very low quality (CRF 40) and at the right is very high (CRF 10).\nffmpeg typically recommends between CRF 15-35. The default here is 23.\nNote, these are not entirely consistent across formats.\nFor example, CRF 28 H265 is supposedly about even with CRF 23 H264.", None))
         self.skipBackgroundsLabel.setText(QCoreApplication.translate(
             "MainWindow", "Ig&nore BG files in drag/drop", None))
         self.skipBackgroundsLabel.setToolTip(QCoreApplication.translate(
@@ -1102,8 +1197,14 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "kbp2video options", None))
         self.outputDirLabel.setText(QCoreApplication.translate(
             "MainWindow", "Output Fo&lder", None))
+        self.relativeLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Use relative &path from project file", None))
+        self.relativeLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Interpret Output Folder as a relative path from your .kbp file.\nE.g. leave it blank to have it in the same folder as your .kbp.", None))
         self.outputDirButton.setText(QCoreApplication.translate(
             "MainWindow", "Bro&wse...", None))
+        self.resetButton.setText(QCoreApplication.translate(
+            "MainWindow", "Reset Settings&...", None))
         self.convertButton.setText(QCoreApplication.translate(
             "MainWindow", "&Convert", None))
     # retranslateUi
