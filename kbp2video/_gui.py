@@ -255,8 +255,8 @@ class DropLabel(QLabel):
                 item.setToolTip(files[0])
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
-                if not (outputdir := mainWindow.outputDir).text():
-                    outputdir.setText(os.path.dirname(files[0]) + "/kbp2video")
+                #if not (outputdir := mainWindow.outputDir).text():
+                #    outputdir.setText(os.path.dirname(files[0]) + "/kbp2video")
                 mainWindow.lastinputdir = os.path.dirname(files[0])
 
                 for filetype, column in (('audio', 1), ('background', 2)):
@@ -692,7 +692,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("qualityLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, value=23, tickInterval=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
+            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, tickInterval=5, pageStep=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
         self.qualityLabel.setBuddy(self.quality)
 
         gridRow += 1
@@ -863,7 +863,14 @@ class Ui_MainWindow(QMainWindow):
     def output_dir(self):
         outputdir = QFileDialog.getExistingDirectory(self, dir=os.path.dirname(self.outputDir.text()))
         if outputdir:
-            self.outputDir.setText(outputdir)
+            if check2bool(self.relative):
+                if self.lastinputdir:
+                    self.outputDir.setText(os.path.relpath(outputdir, self.lastinputdir))
+                else:
+                    # Ok, now we're in murky territory, just pick something possibly correct
+                    self.outputDir.setText(os.path.basename(outputdir))
+            else:
+                self.outputDir.setText(outputdir)
 
     def saveSettings(self):
         to_save = {
@@ -878,9 +885,13 @@ class Ui_MainWindow(QMainWindow):
             "overrideBGResolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
             "video/video_codec_index": self.vcodecBox.currentIndex(),
+            "video/lossless": check2bool(self.lossless),
+            "video/quality": self.quality.value(),
             "video/audio_codec_index": self.acodecBox.currentIndex(),
             "video/audio_bitrate": self.abitrateBox.text(),
-            "video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
+            "kbp2video/relative_path": check2bool(self.relative),
+            "kbp2video/output_dir": self.outputDir.text(),
+            "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
         }
         for setting, value in to_save.items():
             self.settings.setValue(setting, value)
@@ -897,12 +908,15 @@ class Ui_MainWindow(QMainWindow):
         self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
         self.overrideBGResolution.setCheckState(bool2check(self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
         self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
-        self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
+        self.updateCodecs()
         self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
         self.lossless.setCheckState(bool2check(self.settings.value("video/lossless", type=bool, defaultValue=False)))
+        self.quality.setValue(self.settings.value("video/quality", type=int, defaultValue=23))
         self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
         self.abitrateBox.setText(self.settings.value("video/audio_bitrate", type=str, defaultValue=""))
-        self.skipBackgrounds.setCheckState(bool2check(self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        self.relative.setCheckState(bool2check(self.settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
+        self.outputDir.setText(self.settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
+        self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
         self.saveSettings()  # Save to disk any new defaults that were used
 
     def runConversion(self):
@@ -910,17 +924,24 @@ class Ui_MainWindow(QMainWindow):
         converter = Converter(self.conversion_runner)
         # worker.signals.finished.connect
         self.threadpool.start(converter)
+
+    def resolved_output_dir(self, kbp):
+        if check2bool(self.relative):
+            # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
+            return os.path.join(os.path.dirname(kbp), self.outputDir.text())
+        else:
+            return self.output_dir()
     
     def assFile(self, kbp):
         filename = os.path.basename(kbp)
         # This REALLY needs to be set...
-        while not self.outputDir.text():
+        while not check2bool(self.relative) and not self.outputDir.text():
             self.output_dir()
-        return self.outputDir.text() + "/" + filename[:-4].translate(str.maketrans("","",":;,'=\"")) + ".ass"
+        return self.resolved_output_dir(kbp) + "/" + filename[:-4].translate(str.maketrans("","",":;,'=\"")) + ".ass"
     
     def vidFile(self, kbp):
         filename = os.path.basename(kbp)
-        return self.outputDir.text() + "/" + filename[:-4] + "." + self.containerBox.currentText()
+        return self.resolved_output_dir(kbp) + "/" + filename[:-4] + "." + self.containerBox.currentText()
 
     def audioffmpegBitrate(self):
         if self.acodecBox.currentText() == 'flac':
@@ -1094,7 +1115,7 @@ class Ui_MainWindow(QMainWindow):
 
             if check2bool(self.lossless):
                 if self.vcodecBox.currentText() == "libvpx-vp9":
-                    ouput_options["lossless"]=1
+                    output_options["lossless"]=1
                 elif self.vcodecBox.currentText() == "libx265":
                     output_options["x265-params"]="lossless=1"
                 else:
@@ -1104,6 +1125,7 @@ class Ui_MainWindow(QMainWindow):
 
             if self.vcodecBox.currentText() == "libvpx-vp9":
                 output_options["video_bitrate"] = 0 # Required for the format to use CRF only
+                output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
 
             output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
             # ffmpeg_options += [self.vidFile(kbp)]
