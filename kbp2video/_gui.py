@@ -16,10 +16,11 @@ import fractions
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-from .utils import ClickLabel, bool2check, check2bool
+from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
+import json
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -170,7 +171,7 @@ class DropLabel(QLabel):
     def __init__(self, parent=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.setAcceptDrops(True)
-        self.mimedb = QMimeDatabase()
+        self.mimedb = mimedb
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("font: bold 50px")
 
@@ -985,6 +986,9 @@ class Ui_MainWindow(QMainWindow):
             kbp = self.tableWidget.filename(row, 0)
             audio = self.tableWidget.filename(row, 1)
             background = self.tableWidget.filename(row, 2)
+            advanced = json.loads(self.tableWidget.item(row, 3).text() or '{}')
+            print(f"Retrieved Advanced settings for {kbp}:")
+            print(advanced)
             if not kbp:
                 continue
             self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
@@ -1039,6 +1043,8 @@ class Ui_MainWindow(QMainWindow):
             out = QTextStream(f)
             out << data
             f.close()
+
+
             #ffmpeg_options = ["-y"]
             output_options = {}
             base_assfile = os.path.basename(assfile)
@@ -1057,6 +1063,27 @@ class Ui_MainWindow(QMainWindow):
                 #ffmpeg_options += ["-i", background]
                 background_video = ffmpeg.input(background).video
             #ffmpeg_options += ["-i", audio]
+
+            # TODO figure out time/frame for outro
+            for x in ("intro", ):
+                if advanced[f"{x}_enable"]:
+                    # TODO: alpha, sound?
+                    opts = {}
+                    if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
+                        opts["loop"]=1
+                    # TODO skip scale if matching?
+                    # TODO set x/y if mismatched aspect ratio?
+                    overlay = ffmpeg.input(advanced[f"{x}_file"], t=advanced[f"{x}_length"], **opts).filter_(
+                        "scale", s=f"{bg_size.width()}x{bg_size.height()}")
+                    for y in ("In", "Out"):
+                        if float(advanced[f"{x}_fade{y}"].split(":")[1]):
+                            # TODO: minutes
+                            overlay = overlay.filter_("fade", t=y.lower(), st=(0 if y == "In" else (
+                                # TODO: minutes
+                                float(advanced[f"{x}_length"].split(":")[1]) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                            )), d=advanced[f"{x}_fade{y}"].split(":")[1])
+                    background_video = background_video.overlay(overlay, eof_action="pass")
+
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
                 if not bg_size:
@@ -1131,11 +1158,12 @@ class Ui_MainWindow(QMainWindow):
             # ffmpeg_options += [self.vidFile(kbp)]
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
-            print("ffmpeg" + " " + " ".join(ffmpeg_options))
-            q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
-            # cwd= , overwrite_output=True
-            q.start()
-            q.waitForFinished(-1)
+            print(f'cd "{os.path.dirname(assfile)}"')
+            print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
+            # TODO: flip back on
+            #q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            #q.start()
+            #q.waitForFinished(-1)
         
         self.statusbar.showMessage("Conversion completed!")
         signals.finished.emit()

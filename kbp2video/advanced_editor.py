@@ -1,8 +1,9 @@
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-from .utils import ClickLabel
+from .utils import ClickLabel, mimedb, check2bool, bool2check
 import json
+import ffmpeg
 
 class AdvancedEditor(QDialog):
 
@@ -22,26 +23,25 @@ class AdvancedEditor(QDialog):
         self.outputs = [tableWidget.item(x, 3) for x in rows]
         self.loadSettings()
         self.setupUi()
-    
+
     def loadSettings(self):
         self.settings = {}
-        data = []
+        self.data = []
         for x in self.outputs:
             try:
-                data.append(json.loads(x.text()))
+                self.data.append(json.loads(x.text()))
             except json.JSONDecodeError:
-                # Just skip those rows
-                pass
-        # 0 is for testing only
-        if len(data) == 1:
-            self.settings = data[0]
-        elif len(data) > 1:
+                self.data.append({})
+        # If there is at least one row with data, attempt to fill in the form with what's in the rows
+        if any(x for x in self.data):
             for x in ("intro", "outro"):
                 for setting in AdvancedEditor.SETTING_NAMES:
                     key = f"{x}_{setting}"
-                    # TODO: none of the rows have a value - only possible if we can distinguish unset from empty
-                    if all(key in data[0] and key in x and data[0][key] == x[key] for x in data):
-                        self.settings[key] = data[0][key]
+                    firstvalid = next(x for x in self.data if x)
+                    # If all the ones with data have the same value, consider it settable for all rows
+                    if firstvalid and all(key not in x or firstvalid[key] == x[key] for x in self.data):
+                        self.settings[key] = firstvalid[key]
+                    # Otherwise it's indeterminate
                     else:
                         self.settings[key] = None
 
@@ -51,19 +51,28 @@ class AdvancedEditor(QDialog):
             for setting in AdvancedEditor.SETTING_NAMES:
                 widget = getattr(self, f"{x}_{setting}")
                 if type(widget) == QCheckBox:
-                    # Indeterminate to None?
-                    val = True if widget.checkState() == Qt.Checked else False
+                    if widget.checkState() == Qt.PartiallyChecked:
+                        continue
+                    val = check2bool(widget.checkState())
                 elif type(widget) == QLineEdit:
+                    # TODO: This text is ok for display, but find another way to definitively mark indeterminate
+                    if widget.text() == "<Multiple Values>":
+                        continue
                     val = widget.text()
                 elif type(widget) == QTimeEdit:
+                    # TODO: figure out indeterminate value
                     val = widget.time().toString("mm:ss.zzz")
                 else:
                     print(f"Oops, missed type {type(widget).__name__} for {x}_{setting}")
                     val = None
                 result[f"{x}_{setting}"] = val
-        for x in self.outputs:
+        for i,x in enumerate(self.outputs):
+            # TODO: Add default if row had no data but other rows made the value indeterminate
+            # Alternate solutions: error message requiring the field to be filled in
             print("Updating a row")
-            x.setText(json.dumps(result))
+            cur = self.data[i]
+            cur.update(result)
+            x.setText(json.dumps(cur))
 
 
 
@@ -81,19 +90,25 @@ class AdvancedEditor(QDialog):
             grid = self.bind(f"{x}Grid", QGridLayout(getattr(self,f"{x}Tab")))
 
             row = 0
-            grid.addWidget(self.bind(f"{x}_enable", QCheckBox(stateChanged=self.checkbox_enabled_handler)), row, 0, alignment=Qt.AlignRight)
-            grid.addWidget(self.bind(f"{x}_enable_label", ClickLabel(buddy=getattr(self,f"{x}_enable"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+
+            state = Qt.Unchecked
             if (key := f"{x}_enable") in self.settings:
                 if self.settings[key] == None:
-                    getattr(self, key).setTristate(True)
-                    getattr(self, key).setCheckState(Qt.PartiallyChecked)
+                    state = Qt.PartiallyChecked
                 else:
-                    getattr(self, key).setCheckState(Qt.Checked if self.settings[key] else Qt.Unchecked)
+                    state = bool2check(self.settings[key])
+
+            grid.addWidget(self.bind(f"{x}_enable", QCheckBox(tristate=(True if state == Qt.PartiallyChecked else False), checkState=state)), row, 0, alignment=Qt.AlignRight)
+            grid.addWidget(self.bind(f"{x}_enable_label", ClickLabel(buddy=getattr(self,f"{x}_enable"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+
+            # The signal apparently triggers immediately if initialized during
+            # the constructor when also setting the tristate property?! Qt bug?
+            getattr(self, f"{x}_enable").stateChanged.connect(self.checkbox_enabled_handler)
 
             row += 1
             grid.addWidget(self.bind(f"{x}_file", QLineEdit()), row, 1)
             grid.addWidget(self.bind(f"{x}_file_label", ClickLabel(buddy=getattr(self, f"{x}_file"))), row, 0)
-            grid.addWidget(self.bind(f"{x}_file_button", QPushButton()), row, 2)
+            grid.addWidget(self.bind(f"{x}_file_button", QPushButton(clicked=getattr(self, f"load_{x}_file"))), row, 2)
 
             if (key := f"{x}_file") in self.settings:
                 if self.settings[key] == None:
@@ -158,6 +173,7 @@ class AdvancedEditor(QDialog):
                 else:
                     getattr(self, key).setCheckState(Qt.Checked if self.settings[key] else Qt.Unchecked)
 
+        self.checkbox_enabled_handler()
         self.retranslateUi()
 
         self.buttonBox.accepted.connect(self.accept)
@@ -168,7 +184,45 @@ class AdvancedEditor(QDialog):
         super().accept()
 
     def checkbox_enabled_handler(self):
-        pass
+        for x in ("intro", "outro"):
+            state = check2bool(getattr(self, f"{x}_enable").checkState())
+            for y in (*AdvancedEditor.SETTING_NAMES, f"file_button"):
+                if y == "enable":
+                    continue
+                getattr(self, f"{x}_{y}").setEnabled(state)
+
+    IMAGE_FILE_FILTER = "*." + " *.".join(
+       "jpg jpeg png gif jfif jxl bmp tiff webp".split())
+    VIDEO_FILE_FILTER = "*." + " *.".join(
+       "mp4 mkv avi webm mov mpg mpeg".split())
+
+    def load_intro_file(self):
+        self.load_file("intro")
+
+    def load_outro_file(self):
+        self.load_file("outro")
+
+    def load_file(self, where):
+        file, result = QFileDialog.getOpenFileName(
+        self,
+        f"Select {where} video/image file",
+        filter=";;".join(
+            (
+                f"Video/Image Files ({AdvancedEditor.VIDEO_FILE_FILTER} {AdvancedEditor.IMAGE_FILE_FILTER})",
+                f"Video Files ({AdvancedEditor.VIDEO_FILE_FILTER})",
+                f"Image Files ({AdvancedEditor.IMAGE_FILE_FILTER})",
+                "All Files (*)")))
+        # TODO: figure out a starting dir?
+        if result:
+            getattr(self, f"{where}_file").setText(file)
+            if mimedb.mimeTypeForFile(file).name().startswith('video/'):
+                # Maybe not perfect if it contains multiple streams of varying sizes, but should be unlikely
+                try:
+                    if vid_length := ffmpeg.probe(file)['format']['duration']:
+                        getattr(self, f"{where}_length").setTime(QTime.fromMSecsSinceStartOfDay(int(float(vid_length)*1000)))
+                        getattr(self, f"{where}_overlap").setTime(getattr(self, f"{where}_length").time())
+                except:
+                    QMessageBox.warning(self, "Invalid File", f"{file} seems to be an invalid or corrupt video file. You may want to try another.")
 
     def retranslateUi(self):
         self.setWindowTitle(QCoreApplication.translate(

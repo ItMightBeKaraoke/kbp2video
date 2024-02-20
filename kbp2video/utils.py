@@ -19,6 +19,8 @@ class ClickLabel(QLabel):
             else:
                 b.setFocus(Qt.MouseFocusReason)
 
+mimedb = QMimeDatabase()
+
 def check2bool(state_or_checkbox):
     if 'checkState' in dir(state_or_checkbox):
         state_or_checkbox = state_or_checkbox.checkState()
