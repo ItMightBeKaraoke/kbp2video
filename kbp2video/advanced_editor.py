@@ -21,6 +21,8 @@ class AdvancedEditor(QDialog):
         super().__init__()
         rows = set(x.row() for x in tableWidget.selectedIndexes())
         self.outputs = [tableWidget.item(x, 3) for x in rows]
+        self.kbp = f'"{tableWidget.item(rows.pop(), 0).text()}"' if len(rows) == 1 else "<Multiple Files>"
+        self.highlighted = set()
         self.loadSettings()
         self.setupUi()
 
@@ -50,17 +52,14 @@ class AdvancedEditor(QDialog):
         for x in ("intro", "outro"):
             for setting in AdvancedEditor.SETTING_NAMES:
                 widget = getattr(self, f"{x}_{setting}")
+                if widget in self.highlighted:
+                    print(f"Not processing {x}_{setting} due to multiple values present")
+                    continue
                 if type(widget) == QCheckBox:
-                    if widget.checkState() == Qt.PartiallyChecked:
-                        continue
                     val = check2bool(widget.checkState())
                 elif type(widget) == QLineEdit:
-                    # TODO: This text is ok for display, but find another way to definitively mark indeterminate
-                    if widget.text() == "<Multiple Values>":
-                        continue
                     val = widget.text()
                 elif type(widget) == QTimeEdit:
-                    # TODO: figure out indeterminate value
                     val = widget.time().toString("mm:ss.zzz")
                 else:
                     print(f"Oops, missed type {type(widget).__name__} for {x}_{setting}")
@@ -91,6 +90,12 @@ class AdvancedEditor(QDialog):
 
             row = 0
 
+            grid.addWidget(self.bind(f"{x}_title", QLabel(wordWrap=True)), row, 0, 1, 3)
+            if len(self.outputs) > 1:
+                self.highlight(f"{x}_title")
+
+            row += 1
+
             state = Qt.Unchecked
             if (key := f"{x}_enable") in self.settings:
                 if self.settings[key] == None:
@@ -113,6 +118,7 @@ class AdvancedEditor(QDialog):
             if (key := f"{x}_file") in self.settings:
                 if self.settings[key] == None:
                     getattr(self, key).setText("<Multiple Values>")
+                    self.highlight_once(key, "textChanged")
                 else:
                     getattr(self, key).setText(self.settings[key])
 
@@ -123,7 +129,7 @@ class AdvancedEditor(QDialog):
             if (key := f"{x}_length") in self.settings:
                 if self.settings[key] == None:
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
-                    pass
+                    self.highlight_once(key, "timeChanged")
                 else:
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
@@ -133,8 +139,8 @@ class AdvancedEditor(QDialog):
 
             if (key := f"{x}_overlap") in self.settings:
                 if self.settings[key] == None:
+                    self.highlight_once(key, "timeChanged")
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
-                    pass
                 else:
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
@@ -153,13 +159,13 @@ class AdvancedEditor(QDialog):
             if (key := f"{x}_fadeIn") in self.settings:
                 if self.settings[key] == None:
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
-                    pass
+                    self.highlight_once(key, "timeChanged")
                 else:
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
             if (key := f"{x}_fadeOut") in self.settings:
                 if self.settings[key] == None:
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
-                    pass
+                    self.highlight_once(key, "timeChanged")
                 else:
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
@@ -170,6 +176,8 @@ class AdvancedEditor(QDialog):
                 if self.settings[key] == None:
                     getattr(self, key).setTristate(True)
                     getattr(self, key).setCheckState(Qt.PartiallyChecked)
+                    getattr(self, key).setStyleSheet("color: black; background-color: gold")
+                    getattr(self, key).stateChanged.connect(self.sound_enabled_handler)
                 else:
                     getattr(self, key).setCheckState(Qt.Checked if self.settings[key] else Qt.Unchecked)
 
@@ -179,13 +187,46 @@ class AdvancedEditor(QDialog):
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
 
+    # Highlights a field, then adds a signal to remove the highlight, then finally its own connection
+    def highlight_once(self, field, signal):
+        self.highlight(field)
+
+        obj = getattr(self, field)
+        sig = getattr(obj, signal)
+        
+        def foo():
+            self.highlight(field, enable=False)
+            try:
+                sig.disconnect()
+            except:
+                print(f"Failed to remove {signal} from {field}")
+
+        sig.connect(foo)
+            
+
+    def highlight(self, field, enable=True):
+        if 'setStyleSheet' not in dir(field):
+            field = getattr(self, field)
+        if enable:
+            field.setStyleSheet("color: black; background-color: gold")
+            self.highlighted.add(field)
+        else:
+            field.setStyleSheet("")
+            if field in self.highlighted:
+                self.highlighted.remove(field)
+
     def accept(self):
         self.saveSettings()
         super().accept()
 
+    def sound_enabled_handler(self):
+        for x in ("intro", "outro"):
+            self.highlight(f"{x}_sound", getattr(self, f"{x}_sound").checkState() == Qt.PartiallyChecked)
+
     def checkbox_enabled_handler(self):
         for x in ("intro", "outro"):
             state = check2bool(getattr(self, f"{x}_enable").checkState())
+            self.highlight(f"{x}_enable", getattr(self, f"{x}_enable").checkState() == Qt.PartiallyChecked)
             for y in (*AdvancedEditor.SETTING_NAMES, f"file_button"):
                 if y == "enable":
                     continue
@@ -225,10 +266,12 @@ class AdvancedEditor(QDialog):
                     QMessageBox.warning(self, "Invalid File", f"{file} seems to be an invalid or corrupt video file. You may want to try another.")
 
     def retranslateUi(self):
-        self.setWindowTitle(QCoreApplication.translate(
-            "AdvancedEditor", "Set Intro/Outro", None))
+        self.setWindowTitle(QCoreApplication.translate("AdvancedEditor", "Set Intro/Outro", None))
         for x in ("intro", "outro"):
             self.tabs.setTabText(self.tabs.indexOf(getattr(self, f"{x}Tab")), QCoreApplication.translate("AdvancedEditor", x.title(), None))
+            getattr(self, f"{x}_title").setText(QCoreApplication.translate("AdvancedEditor", f"{x.title()} Settings for ")+self.kbp)
+            getattr(self, f"{x}_title").setToolTip(QCoreApplication.translate("AdvancedEditor", f"Add an {x} clip to tracks. If multiple tracks were selected and are\nnow shown in gold, that indicates a difference between their\nsettings. If the entry is left unchanged, those settings will remain\nat their current values."))
+            # TODO: more tooltips
             getattr(self, f"{x}_enable_label").setText(QCoreApplication.translate("AdvancedEditor", f"&Enable {x.title()}"))
             getattr(self, f"{x}_file_label").setText(QCoreApplication.translate("AdvancedEditor", "&Image/Video File"))
             getattr(self, f"{x}_file_button").setText(QCoreApplication.translate("AdvancedEditor", "Bro&wse"))
