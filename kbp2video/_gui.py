@@ -1065,23 +1065,40 @@ class Ui_MainWindow(QMainWindow):
             #ffmpeg_options += ["-i", audio]
 
             # TODO figure out time/frame for outro
-            for x in ("intro", ):
+            song_length = ffmpeg.probe(audio)['format']['duration']
+            for x in ("intro", "outro"):
                 if advanced[f"{x}_enable"]:
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
                         opts["loop"]=1
+                        opts["framerate"]=60
                     # TODO skip scale if matching?
                     # TODO set x/y if mismatched aspect ratio?
                     overlay = ffmpeg.input(advanced[f"{x}_file"], t=advanced[f"{x}_length"], **opts).filter_(
                         "scale", s=f"{bg_size.width()}x{bg_size.height()}")
+                    if x == "outro":
+                        #leadin = ffmpeg_color("000000", s=f"{bg_size.width()}x{bg_size.height()}", r=60, d=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1]))).filter_("format", "rgba")
+                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1])))
+                        overlay = leadin.concat(overlay)
                     for y in ("In", "Out"):
                         if float(advanced[f"{x}_fade{y}"].split(":")[1]):
                             # TODO: minutes
-                            overlay = overlay.filter_("fade", t=y.lower(), st=(0 if y == "In" else (
-                                # TODO: minutes
-                                float(advanced[f"{x}_length"].split(":")[1]) - float(advanced[f"{x}_fadeOut"].split(":")[1])
-                            )), d=advanced[f"{x}_fade{y}"].split(":")[1])
+                            fade_settings = {}
+                            print(advanced[f"{x}_black"])
+                            if not advanced[f"{x}_black"] or (x, y) == ("intro", "Out") or (x, y) == ("outro", "In"):
+                                fade_settings["alpha"] = 1
+                            if x == "intro":
+                                if y == "In":
+                                    fade_settings["st"] = 0
+                                else:
+                                    fade_settings["st"] = float(advanced[f"{x}_length"].split(":")[1]) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                            else:
+                                if y == "Out":
+                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                                else:
+                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
+                            overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
                     background_video = background_video.overlay(overlay, eof_action="pass")
 
             audio_stream = ffmpeg.input(audio).audio
