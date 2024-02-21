@@ -15,7 +15,15 @@ class AdvancedEditor(QDialog):
         obj.setObjectName(name)
         return obj
 
-    SETTING_NAMES = ("enable", "file", "length", "overlap", "fadeIn", "fadeOut", "black")
+    SETTING_NAMES = (
+        "enable",
+        "file",
+        "length",
+        #"overlap",
+        "fadeIn",
+        "fadeOut",
+        "black"
+    )
 
     def __init__(self, tableWidget):
         super().__init__()
@@ -133,16 +141,16 @@ class AdvancedEditor(QDialog):
                 else:
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
-            row += 1
-            grid.addWidget(self.bind(f"{x}_overlap", QTimeEdit(displayFormat="mm:ss.zzz")), row, 1, 1, 2)
-            grid.addWidget(self.bind(f"{x}_overlap_label", ClickLabel(buddy=getattr(self, f"{x}_overlap"))), row, 0)
+            #row += 1
+            #grid.addWidget(self.bind(f"{x}_overlap", QTimeEdit(displayFormat="mm:ss.zzz")), row, 1, 1, 2)
+            #grid.addWidget(self.bind(f"{x}_overlap_label", ClickLabel(buddy=getattr(self, f"{x}_overlap"))), row, 0)
 
-            if (key := f"{x}_overlap") in self.settings:
-                if self.settings[key] == None:
-                    self.highlight_once(key, "timeChanged")
-                    # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
-                else:
-                    getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
+            #if (key := f"{x}_overlap") in self.settings:
+            #    if self.settings[key] == None:
+            #        self.highlight_once(key, "timeChanged")
+            #        # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
+            #    else:
+            #        getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
             row += 1
             grid.addWidget(self.bind(f"{x}_fadeIn",
@@ -261,7 +269,7 @@ class AdvancedEditor(QDialog):
                 try:
                     if vid_length := ffmpeg.probe(file)['format']['duration']:
                         getattr(self, f"{where}_length").setTime(QTime.fromMSecsSinceStartOfDay(int(float(vid_length)*1000)))
-                        getattr(self, f"{where}_overlap").setTime(getattr(self, f"{where}_length").time())
+                        #getattr(self, f"{where}_overlap").setTime(getattr(self, f"{where}_length").time())
                 except:
                     QMessageBox.warning(self, "Invalid File", f"{file} seems to be an invalid or corrupt video file. You may want to try another.")
 
@@ -276,7 +284,7 @@ class AdvancedEditor(QDialog):
             getattr(self, f"{x}_file_label").setText(QCoreApplication.translate("AdvancedEditor", "&Image/Video File"))
             getattr(self, f"{x}_file_button").setText(QCoreApplication.translate("AdvancedEditor", "Bro&wse"))
             getattr(self, f"{x}_length_label").setText(QCoreApplication.translate("AdvancedEditor", "Display &Length"))
-            getattr(self, f"{x}_overlap_label").setText(QCoreApplication.translate("AdvancedEditor", "&Overlap Length"))
+            #getattr(self, f"{x}_overlap_label").setText(QCoreApplication.translate("AdvancedEditor", "&Overlap Length"))
             getattr(self, f"{x}_fade_label").setText(QCoreApplication.translate("AdvancedEditor", "&Fade In/Out"))
             getattr(self, f"{x}_black_label").setText(QCoreApplication.translate("AdvancedEditor", f'Fade {"from" if x == "intro" else "to"} &black'))
         

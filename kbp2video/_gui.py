@@ -1177,10 +1177,9 @@ class Ui_MainWindow(QMainWindow):
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print(f'cd "{os.path.dirname(assfile)}"')
             print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
-            # TODO: flip back on
-            #q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
-            #q.start()
-            #q.waitForFinished(-1)
+            q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            q.start()
+            q.waitForFinished(-1)
         
         self.statusbar.showMessage("Conversion completed!")
         signals.finished.emit()
