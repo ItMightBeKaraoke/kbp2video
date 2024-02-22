@@ -1099,7 +1099,7 @@ class Ui_MainWindow(QMainWindow):
                                 else:
                                     fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
                             overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
-                    background_video = background_video.overlay(overlay, eof_action="pass")
+                    background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
 
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
