@@ -141,8 +141,8 @@ class FileResultSet(collections.namedtuple(
         data = getattr(self, category)
         key = FileResultSet.normalize(file)
         if not key in data:
-            data[key] = []
-        data[key].append(file)
+            data[key] = set()
+        data[key].add(file)
 
     def normalize(path):
         path = os.path.splitext(os.path.basename(path))[0]
@@ -247,25 +247,26 @@ class DropLabel(QLabel):
             # process from kbp to video. Will later support going from .ass
             # file
             for key, files in result.kbp.items():
+                # TODO: handle multiple kbp files under one key
+                kbpFile = next(iter(files))
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
-                # TODO: handle multiple kbp files under one key
-                item = QTableWidgetItem(os.path.basename(files[0]))
-                item.setData(Qt.UserRole, files[0])
-                item.setToolTip(files[0])
+                item = QTableWidgetItem(os.path.basename(kbpFile))
+                item.setData(Qt.UserRole, kbpFile)
+                item.setToolTip(kbpFile)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
                 #if not (outputdir := mainWindow.outputDir).text():
-                #    outputdir.setText(os.path.dirname(files[0]) + "/kbp2video")
-                mainWindow.lastinputdir = os.path.dirname(files[0])
+                #    outputdir.setText(os.path.dirname(kbpFile) + "/kbp2video")
+                mainWindow.lastinputdir = os.path.dirname(kbpFile)
 
                 for filetype, column in (('audio', 1), ('background', 2)):
                     if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                         continue
                     # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
                     current = table.row(item)
-                    match = result.search(filetype, files[0])
+                    match = result.search(filetype, kbpFile)
 
                     # If there happens to be only one kbp, assume all selected audio/backgrounds were intended for it
                     # Also, if there happens to be only one background, assume
@@ -282,7 +283,7 @@ class DropLabel(QLabel):
                     if len(match) > 1:
                         choice, ok = QInputDialog.getItem(
                             self.parentWidget(), f"Select {filetype} file to use",
-                            f"Multiple potential {filetype} files were found for {files[0]}. Please select one, or enter a different path.",
+                            f"Multiple potential {filetype} files were found for {kbpFile}. Please select one, or enter a different path.",
                             match)
                         if ok:
                             match = [choice]
