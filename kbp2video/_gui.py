@@ -310,7 +310,7 @@ class DropLabel(QLabel):
                 if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                     continue
                 for key in getattr(result, filetype):
-                    if len(filenames := getattr(result, filetype)[key]) > 1:
+                    if len(filenames := list(getattr(result, filetype)[key])) > 1:
                         choice, ok = QInputDialog.getItem(
                             self.parentWidget(), f"Select {filetype} file to use",
                             f"Multiple potential {filetype} files were found with similar names. Please select one to import. If multiple are needed, rerun the import with those files after this one is completed. To skip all, hit cancel.",
