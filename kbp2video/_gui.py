@@ -1068,7 +1068,7 @@ class Ui_MainWindow(QMainWindow):
             # TODO figure out time/frame for outro
             song_length = ffmpeg.probe(audio)['format']['duration']
             for x in ("intro", "outro"):
-                if advanced[f"{x}_enable"]:
+                if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
