@@ -1278,6 +1278,8 @@ class Ui_MainWindow(QMainWindow):
 
 
 def run(argv=sys.argv):
+    # Look better on Windows
+    QApplication.setStyle("Fusion")
     app = QApplication(argv)
     window = Ui_MainWindow()
     window.show()
