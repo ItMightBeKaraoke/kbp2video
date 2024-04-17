@@ -20,6 +20,13 @@ from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
+import enum
+
+class TrackTableColumn(enum.Enum):
+    KBP = 0
+    Audio = 1
+    Background = 2
+    Advanced = 3
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -33,8 +40,8 @@ class TrackTable(QTableWidget):
         self.setTabKeyNavigation(False)
         # TODO: update when support for both is included
         # self.setHorizontalHeaderLabels(["KBP/ASS", "Audio", "Background"])
-        self.setHorizontalHeaderLabels(["KBP", "Audio", "Background", "Advanced"])
-        self.hideColumn(3)
+        self.setHorizontalHeaderLabels(list(TrackTableColumn.__members__.keys()))
+        self.hideColumn(TrackTableColumn.Advanced.value)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setDragEnabled(False)
         self.setSortingEnabled(True)
@@ -304,9 +311,9 @@ class DropLabel(QLabel):
             # Try to fill in gaps
             # Need the item itself instead of the row due to potential reordering with sorting
             # TODO: figure out what to do if a kbp file is in the list twice - currently it just updates the last one
-            data = dict((table.key(row, 0), table.item(row, 0)) for row in range(table.rowCount()))
-            for filetype, column in (('audio', 1), ('background', 2)):
-                if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
+            data = dict((table.key(row, TrackTableColumn.KBP.value), table.item(row, TrackTableColumn.KBP.value)) for row in range(table.rowCount()))
+            for filetype, column in (('audio', TrackTableColumn.Audio.value), ('background', TrackTableColumn.Background.value)):
+                if column == TrackTableColumn.Background.value and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                     continue
                 for key in getattr(result, filetype):
                     if len(filenames := list(getattr(result, filetype)[key])) > 1:
@@ -326,7 +333,7 @@ class DropLabel(QLabel):
                     if not search_results and len(result.all_files(filetype)) == 1:
                         search_results = data
 
-                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), 0), data[key]) for key in search_results):
+                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), TrackTableColumn.KBP.value), data[key]) for key in search_results):
                         if len(match) > 1:
                             choice, ok = QInputDialog.getItem(
                                 self.parentWidget(), "Select KBP file to use",
@@ -820,8 +827,8 @@ class Ui_MainWindow(QMainWindow):
 
     def color_apply_button(self):
         for row in range(self.tableWidget.rowCount()):
-            if not (cur := self.tableWidget.item(row, 2)) or not cur.text():
-                self.tableWidget.setItem(row, 2, QTableWidgetItem(
+            if not (cur := self.tableWidget.item(row, TrackTableColumn.Background.value)) or not cur.text():
+                self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
                     f"color: {self.colorText.text()}"))
 
     def advanced_button(self):
@@ -1035,10 +1042,10 @@ class Ui_MainWindow(QMainWindow):
             assOptions += ["--no-t"]
         resolution = self.resolutionBox.currentText().split()[0]
         for row in range(self.tableWidget.rowCount()):
-            kbp = self.tableWidget.filename(row, 0)
-            audio = self.tableWidget.filename(row, 1)
-            background = self.tableWidget.filename(row, 2)
-            advanced = self.tableWidget.item(row, 3).data(Qt.UserRole) or {}
+            kbp = self.tableWidget.filename(row, TrackTableColumn.KBP.value)
+            audio = self.tableWidget.filename(row, TrackTableColumn.Audio.value)
+            background = self.tableWidget.filename(row, TrackTableColumn.Background.value)
+            advanced = self.tableWidget.item(row, TrackTableColumn.Advanced.value).data(Qt.UserRole) or {}
             print(f"Retrieved Advanced settings for {kbp}:")
             print(advanced)
             if not kbp:
