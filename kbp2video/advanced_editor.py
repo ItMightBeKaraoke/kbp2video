@@ -2,7 +2,6 @@ from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
 from .utils import ClickLabel, mimedb, check2bool, bool2check
-import json
 import ffmpeg
 
 class AdvancedEditor(QDialog):
@@ -38,10 +37,7 @@ class AdvancedEditor(QDialog):
         self.settings = {}
         self.data = []
         for x in self.outputs:
-            try:
-                self.data.append(json.loads(x.text()))
-            except json.JSONDecodeError:
-                self.data.append({})
+            self.data.append(x.data(Qt.UserRole) or {})
         # If there is at least one row with data, attempt to fill in the form with what's in the rows
         if any(x for x in self.data):
             for x in ("intro", "outro"):
@@ -79,9 +75,7 @@ class AdvancedEditor(QDialog):
             print("Updating a row")
             cur = self.data[i]
             cur.update(result)
-            x.setText(json.dumps(cur))
-
-
+            x.setData(Qt.UserRole, cur)
 
     def setupUi(self):
         self.setObjectName("AdvancedEditor")

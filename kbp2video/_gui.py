@@ -20,7 +20,6 @@ from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
-import json
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -535,21 +534,21 @@ class Ui_MainWindow(QMainWindow):
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
-        self.aspectRatioOptions = {
-            "CDG, borders (25:18)": (300, True),
-            "Wide, borders (16:9)": (384, True),
-            "Standard, borders (4:3)": (288, True),
-            "CDG no border (3:2)": (288, False),
-            "Wide no border (16:9)": (341, False)
-        }
+        self.aspectRatioOptions = [
+            "CDG, borders (25:18, True)",
+            "Wide, borders (16:9, True)",
+            "Standard, borders (4:3, True)",
+            "CDG no border (3:2, False)",
+            "Wide no border (16:9, False)",
+        ]
         self.gridLayout.addWidget(
             self.bind("aspectLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("aspectRatioBox",QComboBox()),gridRow, 1, 1, 2)
+            self.bind("aspectRatioBox",QComboBox(editable=True, insertPolicy=QComboBox.NoInsert)),gridRow, 1, 1, 2)
                     # sizePolicy=QSizePolicy(
                     #     QSizePolicy.Maximum,
                     #     QSizePolicy.Maximum))),
-        self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
+        self.aspectRatioBox.addItems(self.aspectRatioOptions)
         self.aspectLabel.setBuddy(self.aspectRatioBox)
         #self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
 
@@ -650,7 +649,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("resolutionLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("resolutionBox", QComboBox()), gridRow, 1, 1, 2)
+            self.bind("resolutionBox", QComboBox(editable=True)), gridRow, 1, 1, 2)
         self.resolutionBox.addItems(self.resolutionOptions)
         #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
         self.resolutionLabel.setBuddy(self.resolutionBox)
@@ -876,15 +875,15 @@ class Ui_MainWindow(QMainWindow):
 
     def saveSettings(self):
         to_save = {
-            "subtitle/aspect_ratio_index": self.aspectRatioBox.currentIndex(),
+            "subtitle/aspect_ratio": self.aspectRatioBox.currentText(),
             "subtitle/fade_in": self.fadeIn.value(),
             "subtitle/fade_out": self.fadeOut.value(),
             "subtitle/offset": self.offset.value(),
             "subtitle/override_offset": check2bool(self.overrideOffset),
             "subtitle/transparent_bg": check2bool(self.transparencyBox),
             "video/background_color": self.colorText.text(),
-            "video/output_resolution_index": self.resolutionBox.currentIndex(),
-            "overrideBGResolution": check2bool(self.overrideBGResolution),
+            "video/output_resolution": self.resolutionBox.currentText(),
+            "video/override_bg_resolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
             "video/video_codec_index": self.vcodecBox.currentIndex(),
             "video/lossless": check2bool(self.lossless),
@@ -900,14 +899,35 @@ class Ui_MainWindow(QMainWindow):
         self.settings.sync()
 
     def loadSettings(self):
+        # legacy options
         self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        self.settings.remove("subtitle/aspect_ratio_index")
+        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("overrideBGResolution", type=bool, defaultValue=False)))
+        self.settings.remove("overrideBGResolution")
+        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        self.settings.remove("video/output_resolution_index")
+
+        # Restore existing or custom option
+        aspect_text = self.settings.value("subtitle/aspect_ratio", type=str, defaultValue="<NONEXISTENT>")
+        if (index := self.aspectRatioBox.findText(aspect_text)) != -1:
+            self.aspectRatioBox.setCurrentIndex(index)
+        elif aspect_text != "<NONEXISTENT>":
+            self.aspectRatioBox.setCurrentText(aspect_text)
+
         self.fadeIn.setValue(self.settings.value("subtitle/fade_in", type=int, defaultValue=50))
         self.fadeOut.setValue(self.settings.value("subtitle/fade_out", type=int, defaultValue=50))
         self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
         self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
         self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
         self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
-        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+
+        # Restore existing or custom option
+        resolution_text = self.settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
+        if (index := self.resolutionBox.findText(resolution_text)) != -1:
+            self.resolutionBox.setCurrentIndex(index)
+        elif resolution_text != "<NONEXISTENT>":
+            self.resolutionBox.setCurrentText(resolution_text)
+
         self.overrideBGResolution.setCheckState(bool2check(self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
         self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
         self.updateCodecs()
@@ -954,6 +974,26 @@ class Ui_MainWindow(QMainWindow):
             #return self.abitrateBox.text() or '-b:a 256k' # This couldn't have been working before for manually entered
             return {"audio_bitrate": self.abitrateBox.text() or '256k'}
 
+    def get_aspect_ratio(self):
+        text = self.aspectRatioBox.currentText()
+        if (res := re.search(r'\((.*)\)', text)):
+            text = res.group(1)
+        ratio, border = (x.strip() for x in text.partition(",")[0:3:2])
+        if border.upper() == "TRUE" or border == "":
+            border = True
+        elif border.upper() == "FALSE":
+            border = False
+        else:
+            border = None
+        ratio = list(ratio.partition(":")[0:3:2])
+        for n, i in enumerate(ratio):
+            try:
+                ratio[n] = int(i.strip())
+            except ValueError:
+                ratio[n] = None
+        return (ratio, border)
+       
+
     # Defining this to be invoked from a thread
     @Slot(str, str, result=int)
     def yesno(self, title, text):
@@ -971,7 +1011,18 @@ class Ui_MainWindow(QMainWindow):
     def conversion_runner(self, signals):
         unsupported_message = False
         assOptions = ["-f"]
-        width, border = self.aspectRatioOptions[self.aspectRatioBox.currentText()]
+        ratio, border = self.get_aspect_ratio()
+        if ratio[0] is None or border is None:
+            QMetaObject.invokeMethod(
+                self,
+                'info', 
+                Qt.AutoConnection,
+                Q_ARG(str, "Invalid Aspect Ratio setting"),
+                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available selections or follow the format in parens if you set a custom value."))
+            return
+        if ratio[1] is None:
+            ratio[1] = 216
+        width = round((216 if border else 192) * ratio[0] / ratio[1])
         default_bg = self.colorText.text().strip(" #")
         if width != 300:
             assOptions += ["-W", f"{width}"]
@@ -987,7 +1038,7 @@ class Ui_MainWindow(QMainWindow):
             kbp = self.tableWidget.filename(row, 0)
             audio = self.tableWidget.filename(row, 1)
             background = self.tableWidget.filename(row, 2)
-            advanced = json.loads(self.tableWidget.item(row, 3).text() or '{}')
+            advanced = self.tableWidget.item(row, 3).data(Qt.UserRole) or {}
             print(f"Retrieved Advanced settings for {kbp}:")
             print(advanced)
             if not kbp:
