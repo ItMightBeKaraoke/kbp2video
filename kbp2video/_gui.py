@@ -23,6 +23,7 @@ from ._ffmpegcolor import ffmpeg_color
 import enum
 import kbputils
 import io
+import shutil
 
 class TrackTableColumn(enum.Enum):
     KBP = 0
@@ -1422,10 +1423,23 @@ class Ui_MainWindow(QMainWindow):
     # retranslateUi
 
 
-def run(argv=sys.argv):
+def run(argv=sys.argv, ffmpeg_path=None):
     # Look better on Windows
     QApplication.setStyle("Fusion")
     app = QApplication(argv)
+    orig_path = os.environ['PATH']
+    if ffmpeg_path:
+        os.environ['PATH'] = os.pathsep.join([ffmpeg_path, os.environ['PATH']])
+    if not shutil.which("ffmpeg"):
+        result = QFileDialog.getExistingDirectory(None, "Locate folder with ffmpeg and ffprobe")
+        if result:
+            os.environ['PATH'] = os.pathsep.join([result, os.environ['PATH']])
+        if not shutil.which("ffmpeg"):
+            QMessageBox.critical(None, "ffmpeg not found", "ffmpeg still not found, please download the full release or otherwise install ffmpeg.")
+            sys.exit(1)
+    if not shutil.which("ffprobe"):
+        QMessageBox.critical(None, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
+        sys.exit(1)
     window = Ui_MainWindow()
     window.show()
     sys.exit(app.exec())
