@@ -1,6 +1,6 @@
 [project]
 name = "kbp2video"
-version = "0.0.4"
+version = "0.1.0"
 dependencies = [
     "PySide6",
     "ffmpeg-python",
