@@ -21,12 +21,28 @@ from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
 import enum
+import kbputils
+import io
 
 class TrackTableColumn(enum.Enum):
     KBP = 0
     Audio = 1
     Background = 2
     Advanced = 3
+
+# TODO: Allow this to be at either the .kbp or .ass stage
+# Possibly pull PlayRes? from .ass to letterbox
+class KBPASSWrapper:
+    def __init__(self, kbppath):
+        self.kbp_path = kbppath
+        self.kbp_obj = kbputils.KBPFile(kbppath)
+    def ass_data(self, **kwargs):
+        tmp = io.StringIO()
+        kbputils.AssConverter(self.kbp_obj,**kwargs).ass_document().dump_file(tmp)
+        return tmp.getvalue()
+    def __str__(self):
+        return self.kbp_path
+
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -67,13 +83,13 @@ class TrackTable(QTableWidget):
         if not item:
             return ""
         if res := item.data(Qt.UserRole):
-            return res
+            return str(res)
         else:
             return item.text()
 
     def item_filename(self, item):
         if res := item.data(Qt.UserRole):
-            return res
+            return str(res)
         else:
             return item.text()
 
@@ -82,9 +98,11 @@ class TrackTable(QTableWidget):
         if self.selectedRanges() == []:
             mainWindow.removeButton.setEnabled(False)
             mainWindow.advancedButton.setEnabled(False)
+            mainWindow.colorApplyButton.setEnabled(False)
         else:
             mainWindow.removeButton.setEnabled(True)
             mainWindow.advancedButton.setEnabled(True)
+            mainWindow.colorApplyButton.setEnabled(True)
 
     # TODO: Make user entered and imported work the same way
 
@@ -259,7 +277,7 @@ class DropLabel(QLabel):
                 current = table.rowCount()
                 table.setRowCount(current + 1)
                 item = QTableWidgetItem(os.path.basename(kbpFile))
-                item.setData(Qt.UserRole, kbpFile)
+                item.setData(Qt.UserRole, KBPASSWrapper(kbpFile))
                 item.setToolTip(kbpFile)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
@@ -301,6 +319,22 @@ class DropLabel(QLabel):
                     match_item.setToolTip(match[0])
                     match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                     table.setItem(current, column, match_item)
+
+                # Process audio/background options from KBP file
+                current = table.row(item)
+                if isinstance((k := item.data(Qt.UserRole)), KBPASSWrapper):
+                    if not table.item(current, TrackTableColumn.Audio.value).text() and (audio := k.kbp_obj.trackinfo["audio"]):
+                        # Audio is either absolute path or relative to kbp
+                        audio_path = os.path.join(os.path.dirname(str(k)), audio)
+                        audio_item = QTableWidgetItem(os.path.basename(audio_path))
+                        audio_item.setData(Qt.UserRole, audio_path)
+                        audio_item.setToolTip(audio_path)
+                        audio_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
+                        table.setItem(current, TrackTableColumn.Audio.value, audio_item)
+                    if not table.item(current, TrackTableColumn.Background.value).text():
+                        bg_color = k.kbp_obj.colors.as_rgb24()[0]
+                        bg_item = QTableWidgetItem(f"color: #{bg_color}")
+                        table.setItem(current, TrackTableColumn.Background.value, bg_item)
 
         if result.kbp:
             # Ui_MainWindow > QWidget > QStackedWidget > DropLabel
@@ -357,7 +391,7 @@ class DropLabel(QLabel):
                                 if answer != QMessageBox.Yes:
                                     continue
                             match_item = QTableWidgetItem(os.path.basename(filenames[0]))
-                            match_item.setData(Qt.UserRole, filenames[0])
+                            match_item.setData(Qt.UserRole, KBPASSWrapper(filenames[0]) if column == TrackTableColumn.KBP.value else filenames[0])
                             match_item.setToolTip(filenames[0])
                             match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                             table.setItem(table.indexFromItem(kbp).row(), column, match_item)
@@ -628,7 +662,7 @@ class Ui_MainWindow(QMainWindow):
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
-            clicked=self.color_apply_button)), gridRow, 0)
+            clicked=self.color_apply_button, enabled=False)), gridRow, 0)
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
             text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
@@ -826,10 +860,24 @@ class Ui_MainWindow(QMainWindow):
             self.loadSettings()
 
     def color_apply_button(self):
-        for row in range(self.tableWidget.rowCount()):
-            if not (cur := self.tableWidget.item(row, TrackTableColumn.Background.value)) or not cur.text():
-                self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
-                    f"color: {self.colorText.text()}"))
+        for row in sorted(
+                set(x.row() for x in self.tableWidget.selectedIndexes()),
+                reverse=True):
+            if self.tableWidget.item(row, TrackTableColumn.Background.value).text():
+                result = QMessageBox.question(
+                    self.parentWidget(),
+                    "Overwrite background fields?",
+                    f"Replace any existing background files or colors of the selected files with color {self.colorText.text()}?")
+                if result == QMessageBox.Yes:
+                    break
+                else:
+                    return
+
+        for row in sorted(
+                set(x.row() for x in self.tableWidget.selectedIndexes()),
+                reverse=True):
+            self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
+                f"color: {self.colorText.text()}"))
 
     def advanced_button(self):
         AdvancedEditor.showAdvancedEditor(self.tableWidget)
@@ -1018,6 +1066,7 @@ class Ui_MainWindow(QMainWindow):
     def conversion_runner(self, signals):
         unsupported_message = False
         assOptions = ["-f"]
+        kbputils_options = {}
         ratio, border = self.get_aspect_ratio()
         if ratio[0] is None or border is None:
             QMetaObject.invokeMethod(
@@ -1025,24 +1074,45 @@ class Ui_MainWindow(QMainWindow):
                 'info', 
                 Qt.AutoConnection,
                 Q_ARG(str, "Invalid Aspect Ratio setting"),
-                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available selections or follow the format in parens if you set a custom value."))
+                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available options or follow the format in parens if you set a custom value."))
             return
         if ratio[1] is None:
             ratio[1] = 216
+        resolution = self.resolutionBox.currentText().split()[0]
+        if len(tmp := resolution.split("x")) != 2 or any(not re.match(r'\d+$', x) for x in tmp):
+            QMetaObject.invokeMethod(
+                self,
+                'info', 
+                Qt.AutoConnection,
+                Q_ARG(str, "Invalid Resolution setting"),
+                Q_ARG(str, f"Invalid Resolution setting\nPlease choose from the available options or enter a width and height separated by x."))
+            return
+        tmp = [int(x) for x in tmp]
+        if tmp[1] * ratio[0] / ratio[1] >= tmp[0]:
+            kbputils_options['target_x'] = tmp[0]
+            kbputils_options['target_y'] = int(tmp[0] * ratio[1] / ratio[0])
+        else:
+            kbputils_options['target_y'] = tmp[1]
+            kbputils_options['target_x'] = int(tmp[1] * ratio[0] / ratio[1])
         width = round((216 if border else 192) * ratio[0] / ratio[1])
         default_bg = self.colorText.text().strip(" #")
         if width != 300:
             assOptions += ["-W", f"{width}"]
         if not border:
             assOptions += ["--no-b"]
+            kbputils_options['border'] = False
         assOptions += ["-F", f"{self.fadeIn.value()},{self.fadeOut.value()}"]
+        kbputils_options['fade_in'] = self.fadeIn.value()
+        kbputils_options['fade_out'] = self.fadeOut.value()
         if self.overrideOffset.checkState() == Qt.Checked:
             assOptions += ["-o", f"{self.offset.value()}"]
+            kbputils_options['offset'] = self.offset.value()
         if self.transparencyBox.checkState() != Qt.Checked:
             assOptions += ["--no-t"]
-        resolution = self.resolutionBox.currentText().split()[0]
+            kbputils_options['transparency'] = False
         for row in range(self.tableWidget.rowCount()):
-            kbp = self.tableWidget.filename(row, TrackTableColumn.KBP.value)
+            kbp_obj = self.tableWidget.item(row, TrackTableColumn.KBP.value).data(Qt.UserRole)
+            kbp = str(kbp_obj)
             audio = self.tableWidget.filename(row, TrackTableColumn.Audio.value)
             background = self.tableWidget.filename(row, TrackTableColumn.Background.value)
             advanced = self.tableWidget.item(row, TrackTableColumn.Advanced.value).data(Qt.UserRole) or {}
@@ -1066,18 +1136,35 @@ class Ui_MainWindow(QMainWindow):
                 background_type = 0
                 background = default_bg
             print("kbp2ass " + " ".join(assOptions) + " " + kbp)
-            q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
-            q.start()
-            q.waitForFinished(-1)
-            data = q.readAllStandardOutput()
-            if q.exitStatus() != QProcess.NormalExit or data.isEmpty():
-                QMetaObject.invokeMethod(
-                    self,
-                    'info', 
-                    Qt.AutoConnection,
-                    Q_ARG(str, "Failed to process kbp"),
-                    Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
-                continue
+            if isinstance(kbp_obj, KBPASSWrapper):
+                print("Converting the new way")
+                print(kbputils_options)
+                try:
+                    data = kbp_obj.ass_data(**kbputils_options)
+                except:
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to process kbp"),
+                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{' '.join(sys.exc_info())}"))
+                    continue
+                    
+            else:
+                print("Falling back to kbp2ass")
+                q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
+                q.start()
+                q.waitForFinished(-1)
+                data = q.readAllStandardOutput()
+                if q.exitStatus() != QProcess.NormalExit or data.isEmpty():
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to process kbp"),
+                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+                    continue
+
             assfile = self.assFile(kbp)
 
             # QDir is inconsistent. Needs to be static to check existence, and

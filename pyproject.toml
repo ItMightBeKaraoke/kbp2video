@@ -3,7 +3,8 @@ name = "kbp2video"
 version = "0.0.4"
 dependencies = [
     "PySide6",
-    "ffmpeg-python"
+    "ffmpeg-python",
+    "kbputils"
 ]
 [project.scripts]
 kbp2video = "kbp2video._gui:run"
