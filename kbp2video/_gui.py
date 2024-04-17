@@ -1433,7 +1433,7 @@ def run(argv=sys.argv, ffmpeg_path=None):
     if not shutil.which("ffmpeg"):
         result = QFileDialog.getExistingDirectory(None, "Locate folder with ffmpeg and ffprobe")
         if result:
-            os.environ['PATH'] = os.pathsep.join([result, os.environ['PATH']])
+            os.environ['PATH'] = os.pathsep.join([result, orig_path])
         if not shutil.which("ffmpeg"):
             QMessageBox.critical(None, "ffmpeg not found", "ffmpeg still not found, please download the full release or otherwise install ffmpeg.")
             sys.exit(1)
