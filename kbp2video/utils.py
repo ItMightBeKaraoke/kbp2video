@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import *
+from PySide6.QtCore import *
 
 # Minor enhancement to QLabel - if it has a buddy configured, that will not
 # only allow a keyboard mnemonic to be associated, but will also focus the buddy
@@ -17,3 +18,13 @@ class ClickLabel(QLabel):
                 self.buddyMethod(b)
             else:
                 b.setFocus(Qt.MouseFocusReason)
+
+mimedb = QMimeDatabase()
+
+def check2bool(state_or_checkbox):
+    if 'checkState' in dir(state_or_checkbox):
+        state_or_checkbox = state_or_checkbox.checkState()
+    return state_or_checkbox != Qt.Unchecked
+
+def bool2check(boolVal):
+    return Qt.Checked if boolVal else Qt.Unchecked

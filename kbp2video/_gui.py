@@ -16,23 +16,32 @@ import fractions
 from PySide6.QtCore import *  # type: ignore
 from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
-from .utils import ClickLabel
+from .utils import ClickLabel, bool2check, check2bool, mimedb
+from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
+import enum
+
+class TrackTableColumn(enum.Enum):
+    KBP = 0
+    Audio = 1
+    Background = 2
+    Advanced = 3
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
 class TrackTable(QTableWidget):
 
     def __init__(self, **kwargs):
-        super().__init__(0, 3, **kwargs)
+        super().__init__(0, 4, **kwargs)
         self.setObjectName("tableWidget")
         self.setAcceptDrops(True)
         # If this is enabled, user gets stuck in the widget. Arrow keys can still be used to navigate within it
         self.setTabKeyNavigation(False)
         # TODO: update when support for both is included
         # self.setHorizontalHeaderLabels(["KBP/ASS", "Audio", "Background"])
-        self.setHorizontalHeaderLabels(["KBP", "Audio", "Background"])
+        self.setHorizontalHeaderLabels(list(TrackTableColumn.__members__.keys()))
+        self.hideColumn(TrackTableColumn.Advanced.value)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setDragEnabled(False)
         self.setSortingEnabled(True)
@@ -72,8 +81,10 @@ class TrackTable(QTableWidget):
         mainWindow = self.parentWidget().parentWidget().parentWidget()
         if self.selectedRanges() == []:
             mainWindow.removeButton.setEnabled(False)
+            mainWindow.advancedButton.setEnabled(False)
         else:
             mainWindow.removeButton.setEnabled(True)
+            mainWindow.advancedButton.setEnabled(True)
 
     # TODO: Make user entered and imported work the same way
 
@@ -136,8 +147,8 @@ class FileResultSet(collections.namedtuple(
         data = getattr(self, category)
         key = FileResultSet.normalize(file)
         if not key in data:
-            data[key] = []
-        data[key].append(file)
+            data[key] = set()
+        data[key].add(file)
 
     def normalize(path):
         path = os.path.splitext(os.path.basename(path))[0]
@@ -166,7 +177,7 @@ class DropLabel(QLabel):
     def __init__(self, parent=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.setAcceptDrops(True)
-        self.mimedb = QMimeDatabase()
+        self.mimedb = mimedb
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("font: bold 50px")
 
@@ -242,25 +253,26 @@ class DropLabel(QLabel):
             # process from kbp to video. Will later support going from .ass
             # file
             for key, files in result.kbp.items():
+                # TODO: handle multiple kbp files under one key
+                kbpFile = next(iter(files))
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
-                # TODO: handle multiple kbp files under one key
-                item = QTableWidgetItem(os.path.basename(files[0]))
-                item.setData(Qt.UserRole, files[0])
-                item.setToolTip(files[0])
+                item = QTableWidgetItem(os.path.basename(kbpFile))
+                item.setData(Qt.UserRole, kbpFile)
+                item.setToolTip(kbpFile)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
-                if not (outputdir := mainWindow.outputDir).text():
-                    outputdir.setText(os.path.dirname(files[0]) + "/kbp2video")
-                mainWindow.lastinputdir = os.path.dirname(files[0])
+                #if not (outputdir := mainWindow.outputDir).text():
+                #    outputdir.setText(os.path.dirname(kbpFile) + "/kbp2video")
+                mainWindow.lastinputdir = os.path.dirname(kbpFile)
 
                 for filetype, column in (('audio', 1), ('background', 2)):
                     if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                         continue
                     # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
                     current = table.row(item)
-                    match = result.search(filetype, files[0])
+                    match = result.search(filetype, kbpFile)
 
                     # If there happens to be only one kbp, assume all selected audio/backgrounds were intended for it
                     # Also, if there happens to be only one background, assume
@@ -277,7 +289,7 @@ class DropLabel(QLabel):
                     if len(match) > 1:
                         choice, ok = QInputDialog.getItem(
                             self.parentWidget(), f"Select {filetype} file to use",
-                            f"Multiple potential {filetype} files were found for {files[0]}. Please select one, or enter a different path.",
+                            f"Multiple potential {filetype} files were found for {kbpFile}. Please select one, or enter a different path.",
                             match)
                         if ok:
                             match = [choice]
@@ -299,12 +311,12 @@ class DropLabel(QLabel):
             # Try to fill in gaps
             # Need the item itself instead of the row due to potential reordering with sorting
             # TODO: figure out what to do if a kbp file is in the list twice - currently it just updates the last one
-            data = dict((table.key(row, 0), table.item(row, 0)) for row in range(table.rowCount()))
-            for filetype, column in (('audio', 1), ('background', 2)):
-                if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
+            data = dict((table.key(row, TrackTableColumn.KBP.value), table.item(row, TrackTableColumn.KBP.value)) for row in range(table.rowCount()))
+            for filetype, column in (('audio', TrackTableColumn.Audio.value), ('background', TrackTableColumn.Background.value)):
+                if column == TrackTableColumn.Background.value and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                     continue
                 for key in getattr(result, filetype):
-                    if len(filenames := getattr(result, filetype)[key]) > 1:
+                    if len(filenames := list(getattr(result, filetype)[key])) > 1:
                         choice, ok = QInputDialog.getItem(
                             self.parentWidget(), f"Select {filetype} file to use",
                             f"Multiple potential {filetype} files were found with similar names. Please select one to import. If multiple are needed, rerun the import with those files after this one is completed. To skip all, hit cancel.",
@@ -321,7 +333,7 @@ class DropLabel(QLabel):
                     if not search_results and len(result.all_files(filetype)) == 1:
                         search_results = data
 
-                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), 0), data[key]) for key in search_results):
+                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), TrackTableColumn.KBP.value), data[key]) for key in search_results):
                         if len(match) > 1:
                             choice, ok = QInputDialog.getItem(
                                 self.parentWidget(), "Select KBP file to use",
@@ -506,6 +518,12 @@ class Ui_MainWindow(QMainWindow):
                 "addRowButton", QPushButton(
                     clicked=self.add_row_button)))
 
+        self.leftPaneButtons.addWidget(
+            self.bind(
+                "advancedButton", QPushButton(
+                    clicked=self.advanced_button,
+                    enabled=False))) 
+
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -523,23 +541,23 @@ class Ui_MainWindow(QMainWindow):
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
-        self.aspectRatioOptions = {
-            "CDG, borders (25:18)": (300, True),
-            "Wide, borders (16:9)": (384, True),
-            "Standard, borders (4:3)": (288, True),
-            "CDG no border (3:2)": (288, False),
-            "Wide no border (16:9)": (341, False)
-        }
+        self.aspectRatioOptions = [
+            "CDG, borders (25:18, True)",
+            "Wide, borders (16:9, True)",
+            "Standard, borders (4:3, True)",
+            "CDG no border (3:2, False)",
+            "Wide no border (16:9, False)",
+        ]
         self.gridLayout.addWidget(
             self.bind("aspectLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("aspectRatioBox",QComboBox()),gridRow, 1, 1, 2)
+            self.bind("aspectRatioBox",QComboBox(editable=True, insertPolicy=QComboBox.NoInsert)),gridRow, 1, 1, 2)
                     # sizePolicy=QSizePolicy(
                     #     QSizePolicy.Maximum,
                     #     QSizePolicy.Maximum))),
-        self.aspectRatioBox.addItems(self.aspectRatioOptions.keys())
+        self.aspectRatioBox.addItems(self.aspectRatioOptions)
         self.aspectLabel.setBuddy(self.aspectRatioBox)
-        self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        #self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
@@ -551,7 +569,7 @@ class Ui_MainWindow(QMainWindow):
                     maximum=5000,
                     singleStep=10,
                     suffix=" ms",
-                    value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
+                    #value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
                     sizePolicy=QSizePolicy(
                         QSizePolicy.Maximum,
                         QSizePolicy.Maximum))),
@@ -566,7 +584,7 @@ class Ui_MainWindow(QMainWindow):
                     maximum=5000,
                     singleStep=10,
                     suffix=" ms",
-                    value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
+                    #value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
                     sizePolicy=QSizePolicy(
                         QSizePolicy.Maximum,
                         QSizePolicy.Maximum))),
@@ -586,17 +604,18 @@ class Ui_MainWindow(QMainWindow):
                     maximum=180,
                     singleStep=0.05,
                     suffix=" s",
-                    value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
+                    #value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
                     enabled=False
                     )),
             gridRow,
             1)
         self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddy=self.offset)), gridRow, 0)
 
-        self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
+        #self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
@@ -613,7 +632,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
             text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
-        self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+        #self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
         # TODO: Find a better way to set this to a reasonable width for 7 characters
         # minimumSizeHint is enough for about 3
@@ -637,9 +656,9 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("resolutionLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
-            self.bind("resolutionBox", QComboBox()), gridRow, 1, 1, 2)
+            self.bind("resolutionBox", QComboBox(editable=True)), gridRow, 1, 1, 2)
         self.resolutionBox.addItems(self.resolutionOptions)
-        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
         self.resolutionLabel.setBuddy(self.resolutionBox)
 
         gridRow += 1
@@ -659,7 +678,7 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("containerBox", QComboBox()), gridRow, 1, 1, 2)
         self.containerBox.addItems(self.containerOptions.keys())
-        self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        #self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
         self.containerLabel.setBuddy(self.containerBox)
 
         gridRow += 1
@@ -667,9 +686,22 @@ class Ui_MainWindow(QMainWindow):
             self.bind("vcodecLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
             self.bind("vcodecBox", QComboBox()), gridRow, 1, 1, 2)
-        self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
-        self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        #self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        #self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
         self.vcodecLabel.setBuddy(self.vcodecBox)
+
+        gridRow += 1
+        # TODO: implement feature
+        self.gridLayout.addWidget(self.bind("lossless", QCheckBox(stateChanged=self.lossless_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("lossless", QCheckBox(checkState=Qt.Checked if self.settings.value("video/lossless", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("losslessLabel", ClickLabel(buddy=self.lossless, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("qualityLabel", ClickLabel()), gridRow, 0)
+        self.gridLayout.addWidget(
+            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, tickInterval=5, pageStep=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
+        self.qualityLabel.setBuddy(self.quality)
 
         gridRow += 1
         self.gridLayout.addWidget(
@@ -677,14 +709,16 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(
             self.bind("acodecBox", QComboBox()), gridRow, 1, 1, 2)
         self.acodecBox.addItems(self.containerOptions[self.containerBox.currentText()][1])
-        self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        #self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
         self.acodecLabel.setBuddy(self.acodecBox)
 
         gridRow += 1
         self.gridLayout.addWidget(
             self.bind("abitrateLabel", ClickLabel()), gridRow, 0)
+        #self.gridLayout.addWidget(
+        #    self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
         self.gridLayout.addWidget(
-            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
+            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")))), gridRow, 1, 1, 2)
         self.abitrateLabel.setBuddy(self.abitrateBox)
 
         self.containerBox.currentTextChanged.connect(self.updateCodecs)
@@ -704,6 +738,11 @@ class Ui_MainWindow(QMainWindow):
             alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
 
         gridRow += 1
+        # TODO: implement feature
+        self.gridLayout.addWidget(self.bind("relative", QCheckBox(stateChanged=self.relative_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("relativeLabel", ClickLabel(buddy=self.relative, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.gridLayout.addWidget(
             self.bind("outputDirLabel", ClickLabel()), gridRow, 0)
         self.gridLayout.addWidget(
@@ -713,8 +752,17 @@ class Ui_MainWindow(QMainWindow):
         self.outputDirLabel.setBuddy(self.outputDir)
 
         gridRow += 1
-        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox(checkState=Qt.Checked if self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox(checkState=Qt.Checked if self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        self.gridLayout.setRowStretch(gridRow, 10)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("resetButton", QPushButton(clicked=self.reset_settings, sizePolicy=QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum))), gridRow, 0, 1, 3, alignment=Qt.AlignCenter)
 
         gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
@@ -726,6 +774,8 @@ class Ui_MainWindow(QMainWindow):
 
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+        self.loadSettings()
 
         self.retranslateUi()
 
@@ -748,16 +798,41 @@ class Ui_MainWindow(QMainWindow):
     def offset_check_box(self, *_ignored, setState=None):
         if setState != None:
             self.overrideOffset.setCheckState(setState)
-        if self.overrideOffset.checkState() == Qt.Checked:
+        if check2bool(self.overrideOffset):
             self.offset.setEnabled(True)
         else:
             self.offset.setEnabled(False)
 
+    def lossless_check_box(self, *_ignored, setState=None):
+        if setState != None:
+            self.quality.setCheckState(setState)
+        if not check2bool(self.lossless):
+            self.quality.setEnabled(True)
+        else:
+            self.quality.setEnabled(False)
+
+    def relative_check_box(self, *_ignored, setState=None):
+        pass
+        # if setState != None:
+        #     self.quality.setCheckState(setState)
+        # if self.lossless.checkState() == Qt.Unchecked:
+        #     self.quality.setEnabled(True)
+        # else:
+        #     self.quality.setEnabled(False)
+
+    def reset_settings(self):
+        if QMessageBox.Yes == QMessageBox.question(self, "Reset Settings?", "Reset all settings above back to their defaults?"):
+            self.settings.clear()
+            self.loadSettings()
+
     def color_apply_button(self):
         for row in range(self.tableWidget.rowCount()):
-            if not (cur := self.tableWidget.item(row, 2)) or not cur.text():
-                self.tableWidget.setItem(row, 2, QTableWidgetItem(
+            if not (cur := self.tableWidget.item(row, TrackTableColumn.Background.value)) or not cur.text():
+                self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
                     f"color: {self.colorText.text()}"))
+
+    def advanced_button(self):
+        AdvancedEditor.showAdvancedEditor(self.tableWidget)
 
     def color_choose_button(self):
         result = QColorDialog.getColor(
@@ -796,45 +871,106 @@ class Ui_MainWindow(QMainWindow):
     def output_dir(self):
         outputdir = QFileDialog.getExistingDirectory(self, dir=os.path.dirname(self.outputDir.text()))
         if outputdir:
-            self.outputDir.setText(outputdir)
+            if check2bool(self.relative):
+                if self.lastinputdir:
+                    self.outputDir.setText(os.path.relpath(outputdir, self.lastinputdir))
+                else:
+                    # Ok, now we're in murky territory, just pick something possibly correct
+                    self.outputDir.setText(os.path.basename(outputdir))
+            else:
+                self.outputDir.setText(outputdir)
 
     def saveSettings(self):
         to_save = {
-            "subtitle/aspect_ratio_index": self.aspectRatioBox.currentIndex(),
+            "subtitle/aspect_ratio": self.aspectRatioBox.currentText(),
             "subtitle/fade_in": self.fadeIn.value(),
             "subtitle/fade_out": self.fadeOut.value(),
             "subtitle/offset": self.offset.value(),
-            "subtitle/override_offset": True if self.overrideOffset.checkState() == Qt.Checked else False,
-            "subtitle/transparent_bg": True if self.transparencyBox.checkState() == Qt.Checked else False,
+            "subtitle/override_offset": check2bool(self.overrideOffset),
+            "subtitle/transparent_bg": check2bool(self.transparencyBox),
             "video/background_color": self.colorText.text(),
-            "video/output_resolution_index": self.resolutionBox.currentIndex(),
-            #"overrideBGResolution": True if self.overrideBGResolution.checkState() == Qt.Checked else False,
+            "video/output_resolution": self.resolutionBox.currentText(),
+            "video/override_bg_resolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
             "video/video_codec_index": self.vcodecBox.currentIndex(),
+            "video/lossless": check2bool(self.lossless),
+            "video/quality": self.quality.value(),
             "video/audio_codec_index": self.acodecBox.currentIndex(),
             "video/audio_bitrate": self.abitrateBox.text(),
-            "video/ignore_bg_files_drag_drop": True if self.skipBackgrounds.checkState() == Qt.Checked else False,
+            "kbp2video/relative_path": check2bool(self.relative),
+            "kbp2video/output_dir": self.outputDir.text(),
+            "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
         }
         for setting, value in to_save.items():
             self.settings.setValue(setting, value)
         self.settings.sync()
+
+    def loadSettings(self):
+        # legacy options
+        self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        self.settings.remove("subtitle/aspect_ratio_index")
+        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("overrideBGResolution", type=bool, defaultValue=False)))
+        self.settings.remove("overrideBGResolution")
+        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        self.settings.remove("video/output_resolution_index")
+
+        # Restore existing or custom option
+        aspect_text = self.settings.value("subtitle/aspect_ratio", type=str, defaultValue="<NONEXISTENT>")
+        if (index := self.aspectRatioBox.findText(aspect_text)) != -1:
+            self.aspectRatioBox.setCurrentIndex(index)
+        elif aspect_text != "<NONEXISTENT>":
+            self.aspectRatioBox.setCurrentText(aspect_text)
+
+        self.fadeIn.setValue(self.settings.value("subtitle/fade_in", type=int, defaultValue=50))
+        self.fadeOut.setValue(self.settings.value("subtitle/fade_out", type=int, defaultValue=50))
+        self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
+        self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
+        self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+
+        # Restore existing or custom option
+        resolution_text = self.settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
+        if (index := self.resolutionBox.findText(resolution_text)) != -1:
+            self.resolutionBox.setCurrentIndex(index)
+        elif resolution_text != "<NONEXISTENT>":
+            self.resolutionBox.setCurrentText(resolution_text)
+
+        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
+        self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        self.updateCodecs()
+        self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        self.lossless.setCheckState(bool2check(self.settings.value("video/lossless", type=bool, defaultValue=False)))
+        self.quality.setValue(self.settings.value("video/quality", type=int, defaultValue=23))
+        self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        self.abitrateBox.setText(self.settings.value("video/audio_bitrate", type=str, defaultValue=""))
+        self.relative.setCheckState(bool2check(self.settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
+        self.outputDir.setText(self.settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
+        self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        self.saveSettings()  # Save to disk any new defaults that were used
 
     def runConversion(self):
         self.saveSettings()
         converter = Converter(self.conversion_runner)
         # worker.signals.finished.connect
         self.threadpool.start(converter)
+
+    def resolved_output_dir(self, kbp):
+        if check2bool(self.relative):
+            # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
+            return os.path.join(os.path.dirname(kbp), self.outputDir.text())
+        else:
+            return self.output_dir()
     
     def assFile(self, kbp):
         filename = os.path.basename(kbp)
         # This REALLY needs to be set...
-        while not self.outputDir.text():
+        while not check2bool(self.relative) and not self.outputDir.text():
             self.output_dir()
-        return self.outputDir.text() + "/" + filename[:-4].translate(str.maketrans("","",":;,'=\"")) + ".ass"
+        return self.resolved_output_dir(kbp) + "/" + filename[:-4].translate(str.maketrans("","",":;,'=\"")) + ".ass"
     
     def vidFile(self, kbp):
         filename = os.path.basename(kbp)
-        return self.outputDir.text() + "/" + filename[:-4] + "." + self.containerBox.currentText()
+        return self.resolved_output_dir(kbp) + "/" + filename[:-4] + "." + self.containerBox.currentText()
 
     def audioffmpegBitrate(self):
         if self.acodecBox.currentText() == 'flac':
@@ -844,6 +980,26 @@ class Ui_MainWindow(QMainWindow):
         else:
             #return self.abitrateBox.text() or '-b:a 256k' # This couldn't have been working before for manually entered
             return {"audio_bitrate": self.abitrateBox.text() or '256k'}
+
+    def get_aspect_ratio(self):
+        text = self.aspectRatioBox.currentText()
+        if (res := re.search(r'\((.*)\)', text)):
+            text = res.group(1)
+        ratio, border = (x.strip() for x in text.partition(",")[0:3:2])
+        if border.upper() == "TRUE" or border == "":
+            border = True
+        elif border.upper() == "FALSE":
+            border = False
+        else:
+            border = None
+        ratio = list(ratio.partition(":")[0:3:2])
+        for n, i in enumerate(ratio):
+            try:
+                ratio[n] = int(i.strip())
+            except ValueError:
+                ratio[n] = None
+        return (ratio, border)
+       
 
     # Defining this to be invoked from a thread
     @Slot(str, str, result=int)
@@ -862,7 +1018,18 @@ class Ui_MainWindow(QMainWindow):
     def conversion_runner(self, signals):
         unsupported_message = False
         assOptions = ["-f"]
-        width, border = self.aspectRatioOptions[self.aspectRatioBox.currentText()]
+        ratio, border = self.get_aspect_ratio()
+        if ratio[0] is None or border is None:
+            QMetaObject.invokeMethod(
+                self,
+                'info', 
+                Qt.AutoConnection,
+                Q_ARG(str, "Invalid Aspect Ratio setting"),
+                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available selections or follow the format in parens if you set a custom value."))
+            return
+        if ratio[1] is None:
+            ratio[1] = 216
+        width = round((216 if border else 192) * ratio[0] / ratio[1])
         default_bg = self.colorText.text().strip(" #")
         if width != 300:
             assOptions += ["-W", f"{width}"]
@@ -875,9 +1042,12 @@ class Ui_MainWindow(QMainWindow):
             assOptions += ["--no-t"]
         resolution = self.resolutionBox.currentText().split()[0]
         for row in range(self.tableWidget.rowCount()):
-            kbp = self.tableWidget.filename(row, 0)
-            audio = self.tableWidget.filename(row, 1)
-            background = self.tableWidget.filename(row, 2)
+            kbp = self.tableWidget.filename(row, TrackTableColumn.KBP.value)
+            audio = self.tableWidget.filename(row, TrackTableColumn.Audio.value)
+            background = self.tableWidget.filename(row, TrackTableColumn.Background.value)
+            advanced = self.tableWidget.item(row, TrackTableColumn.Advanced.value).data(Qt.UserRole) or {}
+            print(f"Retrieved Advanced settings for {kbp}:")
+            print(advanced)
             if not kbp:
                 continue
             self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
@@ -932,6 +1102,8 @@ class Ui_MainWindow(QMainWindow):
             out = QTextStream(f)
             out << data
             f.close()
+
+
             #ffmpeg_options = ["-y"]
             output_options = {}
             base_assfile = os.path.basename(assfile)
@@ -950,6 +1122,44 @@ class Ui_MainWindow(QMainWindow):
                 #ffmpeg_options += ["-i", background]
                 background_video = ffmpeg.input(background).video
             #ffmpeg_options += ["-i", audio]
+
+            # TODO figure out time/frame for outro
+            song_length = ffmpeg.probe(audio)['format']['duration']
+            for x in ("intro", "outro"):
+                if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
+                    # TODO: alpha, sound?
+                    opts = {}
+                    if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
+                        opts["loop"]=1
+                        opts["framerate"]=60
+                    # TODO skip scale if matching?
+                    # TODO set x/y if mismatched aspect ratio?
+                    overlay = ffmpeg.input(advanced[f"{x}_file"], t=advanced[f"{x}_length"], **opts).filter_(
+                        "scale", s=f"{bg_size.width()}x{bg_size.height()}")
+                    if x == "outro":
+                        #leadin = ffmpeg_color("000000", s=f"{bg_size.width()}x{bg_size.height()}", r=60, d=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1]))).filter_("format", "rgba")
+                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1])))
+                        overlay = leadin.concat(overlay)
+                    for y in ("In", "Out"):
+                        if float(advanced[f"{x}_fade{y}"].split(":")[1]):
+                            # TODO: minutes
+                            fade_settings = {}
+                            print(advanced[f"{x}_black"])
+                            if not advanced[f"{x}_black"] or (x, y) == ("intro", "Out") or (x, y) == ("outro", "In"):
+                                fade_settings["alpha"] = 1
+                            if x == "intro":
+                                if y == "In":
+                                    fade_settings["st"] = 0
+                                else:
+                                    fade_settings["st"] = float(advanced[f"{x}_length"].split(":")[1]) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                            else:
+                                if y == "Out":
+                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                                else:
+                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
+                            overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
+                    background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
+
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
                 if not bg_size:
@@ -1005,13 +1215,28 @@ class Ui_MainWindow(QMainWindow):
             # TODO: should pix_fmt be configurable or change default based on codec?
             #ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
             output_options.update(self.audioffmpegBitrate())
+
+            if check2bool(self.lossless):
+                if self.vcodecBox.currentText() == "libvpx-vp9":
+                    output_options["lossless"]=1
+                elif self.vcodecBox.currentText() == "libx265":
+                    output_options["x265-params"]="lossless=1"
+                else:
+                    output_options["crf"]=0
+            else:
+                output_options["crf"]=self.quality.value()
+
+            if self.vcodecBox.currentText() == "libvpx-vp9":
+                output_options["video_bitrate"] = 0 # Required for the format to use CRF only
+                output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
+
             output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
             # ffmpeg_options += [self.vidFile(kbp)]
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
-            print("ffmpeg" + " " + " ".join(ffmpeg_options))
+            print(f'cd "{os.path.dirname(assfile)}"')
+            print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
-            # cwd= , overwrite_output=True
             q.start()
             q.waitForFinished(-1)
         
@@ -1023,6 +1248,8 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "KBP to Video", None))
         self.addButton.setText(QCoreApplication.translate(
             "MainWindow", "&Add Files...", None))
+        self.advancedButton.setText(QCoreApplication.translate(
+            "MainWindow", "Set Intro&/Outro...", None))
         self.colorChooseButton.setText(QCoreApplication.translate(
             "MainWindow", "C&hoose...", None))
         self.colorChooseButton.setToolTip(QCoreApplication.translate(
@@ -1079,6 +1306,14 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Override back&ground", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
+        self.losslessLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Lossless video", None))
+        self.lossless.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Use lossless quality settings on video (may create very large files).\nFor lossless audio and video, use an mkv container with this checked and flac codec for audio.", None))
+        self.qualityLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Video &Quality", None))
+        self.quality.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Quality of the output video.\nAt the very left is very low quality (CRF 40) and at the right is very high (CRF 10).\nffmpeg typically recommends between CRF 15-35. The default here is 23.\nNote, these are not entirely consistent across formats.\nFor example, CRF 28 H265 is supposedly about even with CRF 23 H264.", None))
         self.skipBackgroundsLabel.setText(QCoreApplication.translate(
             "MainWindow", "Ig&nore BG files in drag/drop", None))
         self.skipBackgroundsLabel.setToolTip(QCoreApplication.translate(
@@ -1087,14 +1322,22 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "kbp2video options", None))
         self.outputDirLabel.setText(QCoreApplication.translate(
             "MainWindow", "Output Fo&lder", None))
+        self.relativeLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Use relative &path from project file", None))
+        self.relativeLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Interpret Output Folder as a relative path from your .kbp file.\nE.g. leave it blank to have it in the same folder as your .kbp.", None))
         self.outputDirButton.setText(QCoreApplication.translate(
             "MainWindow", "Bro&wse...", None))
+        self.resetButton.setText(QCoreApplication.translate(
+            "MainWindow", "Reset Settings&...", None))
         self.convertButton.setText(QCoreApplication.translate(
             "MainWindow", "&Convert", None))
     # retranslateUi
 
 
 def run(argv=sys.argv):
+    # Look better on Windows
+    QApplication.setStyle("Fusion")
     app = QApplication(argv)
     window = Ui_MainWindow()
     window.show()
