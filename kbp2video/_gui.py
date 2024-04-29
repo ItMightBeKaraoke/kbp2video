@@ -41,6 +41,9 @@ class KBPASSWrapper:
             self.kbp_obj = kbputils.KBPFile(path)
     def ass_data(self, **kwargs):
         if hasattr(self,"kbp_path"):
+            # Re-read file in case it changed on disk
+            self.kbp_obj = kbputils.KBPFile(self.kbp_path)
+
             tmp = io.StringIO()
             kbputils.AssConverter(self.kbp_obj,**kwargs).ass_document().dump_file(tmp)
             return tmp.getvalue()
@@ -1048,10 +1051,16 @@ class Ui_MainWindow(QMainWindow):
 
     def resolved_output_dir(self, kbp):
         if check2bool(self.relative):
-            # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
-            return os.path.join(os.path.dirname(kbp), self.outputDir.text())
+
+            # If relative is set, assume .ass dir is the output dir because we
+            # no longer know the project file
+            if kbp.endswith(".ass"):
+                return os.path.dirname(kbp)
+            else:
+                # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
+                return os.path.join(os.path.dirname(kbp), self.outputDir.text())
         else:
-            return self.output_dir()
+            return self.outputDir.text()
     
     def assFile(self, kbp):
         filename = os.path.basename(kbp)
@@ -1249,9 +1258,9 @@ class Ui_MainWindow(QMainWindow):
                     kbp_table_item.setText(os.path.basename(assfile))
                     kbp_table_item.setToolTip(assfile)
                     kbp_table_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
-                    self.statusbar.showMessage("")
-                    continue
 
+            if assOnly:
+                continue
 
             #ffmpeg_options = ["-y"]
             output_options = {}

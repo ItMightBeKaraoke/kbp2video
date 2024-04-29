@@ -2,7 +2,7 @@
 name = "kbp2video"
 version = "0.1.0"
 dependencies = [
-    "PySide6",
+    "PySide6-Essentials < 6.7",
     "ffmpeg-python",
     "kbputils"
 ]
