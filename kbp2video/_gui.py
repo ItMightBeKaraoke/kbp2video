@@ -24,6 +24,7 @@ import enum
 import kbputils
 import io
 import shutil
+from . import __version__
 
 class TrackTableColumn(enum.Enum):
     KBP_ASS = 0
@@ -511,6 +512,16 @@ class Ui_MainWindow(QMainWindow):
         # self.menubar.addMenu("test")
         # self.setMenuBar(self.menubar)
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
+        try:
+            q = QProcess(program="ffmpeg", arguments=["-version"])
+            q.start()
+            q.waitForFinished(1000)
+            q.setReadChannel(QProcess.StandardOutput)
+            version_line = str(q.readLine()).split()
+            ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
+        except:
+            ffmpeg_version = "MISSING/UNKNOWN"
+        self.statusbar.showMessage(f"kbp2video {__version__} (kbputils {kbputils.__version__}, ffmpeg {ffmpeg_version})")
 
         QCoreApplication.setOrganizationName("ItMightBeKaraoke")
         QCoreApplication.setApplicationName("kbp2video")
@@ -682,6 +693,13 @@ class Ui_MainWindow(QMainWindow):
         #self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
+        self.gridLayout.addWidget(
+            self.bind("overflowLabel", ClickLabel(buddy=self.overflowBox)), gridRow, 0)
+        self.overflowBox.addItems(["no wrap","even split","top split","bottom split"])
 
         gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
@@ -977,6 +995,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/offset": self.offset.value(),
             "subtitle/override_offset": check2bool(self.overrideOffset),
             "subtitle/transparent_bg": check2bool(self.transparencyBox),
+            "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/output_resolution": self.resolutionBox.currentText(),
             "video/override_bg_resolution": check2bool(self.overrideBGResolution),
@@ -1015,6 +1034,7 @@ class Ui_MainWindow(QMainWindow):
         self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
         self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
         self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.overflowBox.setCurrentText(self.settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
         # Restore existing or custom option
@@ -1163,6 +1183,7 @@ class Ui_MainWindow(QMainWindow):
         if self.transparencyBox.checkState() != Qt.Checked:
             assOptions += ["--no-t"]
             kbputils_options['transparency'] = False
+        kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
         for row in range(self.tableWidget.rowCount()):
             kbp_table_item = self.tableWidget.item(row, TrackTableColumn.KBP_ASS.value)
             kbp_obj = kbp_table_item.data(Qt.UserRole) or kbp_table_item.text()
@@ -1440,6 +1461,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "&Draw BG color transparent", None))
         self.transparencyLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When using palette index 0 as a font or border color in KBS, make that color\ntransparent in the resulting .ass file. This improves compatibility with\ndrawing appearing and overlapping text. ", None))
+        self.overflowLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Word Wrapping", None))
+        self.overflowBox.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When a line is too wide for the screen, use this strategy to wrap words\n  no wrap: Allow text to go off screen\n  even split: Wrap words in a way that makes the following line(s) about the same size\n  top split: Keep the first line long, only wrap at the word that causes it to go offscreen\n  bottom split: Make the bottom line long when wrapping", None))
         self.overrideOffsetLabel.setText(QCoreApplication.translate(
             "MainWindow", "Overr&ide Timestamp Offset", None))
         self.overrideOffsetLabel.setToolTip(QCoreApplication.translate(

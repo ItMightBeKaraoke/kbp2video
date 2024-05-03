@@ -1,15 +1,17 @@
 [project]
 name = "kbp2video"
-version = "0.1.1"
+dynamic = ["version"]
 dependencies = [
     "PySide6-Essentials < 6.7",
     "ffmpeg-python",
-    "kbputils"
+    "kbputils >= 0.0.5"
 ]
 [project.scripts]
 kbp2video = "kbp2video._gui:run"
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools >= 61.0.0"]
 build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["kbp2video"]
+[tool.setuptools.dynamic]
+version = {attr = "kbp2video.__version__"}
