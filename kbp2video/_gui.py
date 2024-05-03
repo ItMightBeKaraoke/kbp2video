@@ -1523,6 +1523,12 @@ class Ui_MainWindow(QMainWindow):
 
 
 def run(argv=sys.argv, ffmpeg_path=None):
+    if '--help' in argv or '-h' in argv:
+        print("kbp2video [[--help | -h] | [--version | -V]] [Qt6 options]")
+        sys.exit(0)
+    elif '--version' in argv or '-V' in argv:
+        print(__version__)
+        sys.exit(0)
     # Look better on Windows
     QApplication.setStyle("Fusion")
     app = QApplication(argv)
