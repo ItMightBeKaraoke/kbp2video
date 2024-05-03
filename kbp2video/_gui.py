@@ -1462,7 +1462,7 @@ class Ui_MainWindow(QMainWindow):
         self.transparencyLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When using palette index 0 as a font or border color in KBS, make that color\ntransparent in the resulting .ass file. This improves compatibility with\ndrawing appearing and overlapping text. ", None))
         self.overflowLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Word Wrapping", None))
+            "MainWindow", "Word Wrappin&g", None))
         self.overflowBox.setToolTip(QCoreApplication.translate(
             "MainWindow", "When a line is too wide for the screen, use this strategy to wrap words\n  no wrap: Allow text to go off screen\n  even split: Wrap words in a way that makes the following line(s) about the same size\n  top split: Keep the first line long, only wrap at the word that causes it to go offscreen\n  bottom split: Make the bottom line long when wrapping", None))
         self.overrideOffsetLabel.setText(QCoreApplication.translate(
@@ -1488,7 +1488,7 @@ class Ui_MainWindow(QMainWindow):
         self.abitrateBox.setPlaceholderText(QCoreApplication.translate(
             "MainWindow", "Leave blank for default", None))
         self.overrideBGLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Override back&ground", None))
+            "MainWindow", "Override background", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
         self.losslessLabel.setText(QCoreApplication.translate(
