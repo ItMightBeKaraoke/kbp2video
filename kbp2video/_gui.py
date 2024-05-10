@@ -25,6 +25,7 @@ import kbputils
 import io
 import shutil
 from . import __version__
+import traceback
 
 class TrackTableColumn(enum.Enum):
     KBP_ASS = 0
@@ -1224,7 +1225,7 @@ class Ui_MainWindow(QMainWindow):
                         'info', 
                         Qt.AutoConnection,
                         Q_ARG(str, "Failed to process kbp"),
-                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{' '.join(sys.exc_info())}"))
+                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
                     continue
             elif kbp.endswith(".ass"): # kbp_obj is either a KBPASSWrapper with a .ass file, or a manually entered string with .ass
                 if any(x in kbp for x in ":;,'=\""):
