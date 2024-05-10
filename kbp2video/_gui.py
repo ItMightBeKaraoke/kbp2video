@@ -299,11 +299,16 @@ class DropLabel(QLabel):
             #for key, files in result.kbp.items():
                 # TODO: handle multiple kbp files under one key
                 kbpassFile = next(iter(files))
+                try:
+                    kbpassObj = KBPASSWrapper(kbpassFile)
+                except:
+                    QMessageBox.information(mainWindow, "Unable to process kbp", f"Failed to process .kbp file\n{kbpassFile}\n\nError Output:\n{traceback.format_exc()}")
+                    continue
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
                 item = QTableWidgetItem(os.path.basename(kbpassFile))
-                item.setData(Qt.UserRole, KBPASSWrapper(kbpassFile))
+                item.setData(Qt.UserRole, kbpassObj)
                 item.setToolTip(kbpassFile)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
@@ -418,7 +423,8 @@ class DropLabel(QLabel):
                                 if answer != QMessageBox.Yes:
                                     continue
                             match_item = QTableWidgetItem(os.path.basename(filenames[0]))
-                            match_item.setData(Qt.UserRole, KBPASSWrapper(filenames[0]) if column == TrackTableColumn.KBP_ASS.value else filenames[0])
+                            # filetype in audio, background
+                            match_item.setData(Qt.UserRole, filenames[0])
                             match_item.setToolTip(filenames[0])
                             match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                             table.setItem(table.indexFromItem(kbp).row(), column, match_item)
