@@ -1,0 +1,58 @@
+[Application]
+name=kbp2video
+version=${version}
+script=kbp2video.pyw
+
+[Build]
+installer_name=kbp2video_setup_${version}.exe
+
+[Shortcut kbp2video (debug mode)]
+script=kbp2video.pyw
+console=true
+
+[Python]
+version=3.11.9
+include_msvcrt=false
+bitness=64
+
+[Include]
+pypi_wheels = kbp2video==${version}
+	ass==0.5.4
+	ffmpeg-python==0.2.0
+	future==1.0.0
+	kbputils==${kbputils_version}
+	PySide6_Essentials==6.6.3.1
+	shiboken6==6.6.3.1
+
+files = ffmpeg/
+exclude=pkgs/PySide6/*.exe
+    pkgs/PySide6/opengl32sw.dll
+    pkgs/PySide6/Qt*OpenGL*
+    pkgs/PySide6/Qt*Quick*
+    pkgs/PySide6/Qt*Designer*
+    pkgs/PySide6/translations/*_ar.qm
+    pkgs/PySide6/translations/*_bg.qm
+    pkgs/PySide6/translations/*_ca.qm
+    pkgs/PySide6/translations/*_cs.qm
+    pkgs/PySide6/translations/*_da.qm
+    pkgs/PySide6/translations/*_de.qm
+    pkgs/PySide6/translations/*_es.qm
+    pkgs/PySide6/translations/*_fa.qm
+    pkgs/PySide6/translations/*_fi.qm
+    pkgs/PySide6/translations/*_fr.qm
+    pkgs/PySide6/translations/*_gd.qm
+    pkgs/PySide6/translations/*_gl.qm
+    pkgs/PySide6/translations/*_hr.qm
+    pkgs/PySide6/translations/*_hu.qm
+    pkgs/PySide6/translations/*_it.qm
+    pkgs/PySide6/translations/*_ko.qm
+    pkgs/PySide6/translations/*_lt.qm
+    pkgs/PySide6/translations/*_lv.qm
+    pkgs/PySide6/translations/*_nl.qm
+    pkgs/PySide6/translations/*_nn.qm
+    pkgs/PySide6/translations/*_pl.qm
+    pkgs/PySide6/translations/*_pt_BR.qm
+    pkgs/PySide6/translations/*_ru.qm
+    pkgs/PySide6/translations/*_sl.qm
+    pkgs/PySide6/translations/*_tr.qm
+    pkgs/PySide6/translations/*_uk.qm
