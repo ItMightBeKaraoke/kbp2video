@@ -4,7 +4,8 @@ dynamic = ["version"]
 dependencies = [
     "PySide6-Essentials < 6.7",
     "ffmpeg-python",
-    "kbputils >= 0.0.5"
+    "kbputils >= 0.0.5",
+    "lastversion"
 ]
 [project.scripts]
 kbp2video = "kbp2video._gui:run"

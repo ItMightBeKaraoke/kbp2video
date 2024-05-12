@@ -26,6 +26,7 @@ import io
 import shutil
 from . import __version__
 import traceback
+import lastversion
 
 class TrackTableColumn(enum.Enum):
     KBP_ASS = 0
@@ -475,6 +476,7 @@ class DropLabel(QLabel):
 class ConverterSignals(QObject):
     finished = Signal()
     progress = Signal(int, int)
+    data = Signal(dict)
 
 class Converter(QRunnable):
     def __init__(self, function, *args, **kwargs):
@@ -488,14 +490,51 @@ class Converter(QRunnable):
     def run(self):
         self.function(self.signals, *self.args, **self.kwargs)
 
+class UpdateBox(QMessageBox):
+    def _lastversion_wrap(self, signals):
+        try:
+            result = {}
+            version = lastversion.has_update(repo="ItMightBeKaraoke/kbp2video", at="github", pre_ok=True, current_version=__version__)
+            if version:
+                result['version'] = version
+                result['urls'] = lastversion.latest(repo='ItMightBeKaraoke/kbp2video', pre_ok=True, output_format='assets')
+        except:
+            result = {'error': traceback.format_exc(limit=2)}
+        signals.data.emit(result)
+
+    def __init__(self, parent, threadpool):
+        super().__init__(QMessageBox.Information, "Check for updates", "Checking for updates...", QMessageBox.StandardButton(QMessageBox.Ok), parent=parent)
+        self.runner = Converter(self._lastversion_wrap)
+        self.runner.signals.data.connect(self._display_data)
+        threadpool.start(self.runner)
+    
+    def update_check(parent, threadpool):
+        box = UpdateBox(parent, threadpool)
+        box.exec()
+
+    def _display_data(self, data):
+        if 'error' in data:
+            self.setWindowTitle("Check for updates: failed!")
+            self.setText(f"Failed to check for update:\n{data['error']}")
+        elif data:
+            self.setWindowTitle("Check for updates: update available!")
+            dl_info = ''.join(f'<br>Download <a href="{url}">{url.split("/")[-1]}</a>' for url in data['urls'])
+            self.setText(f"New version of kbp2video available ({data['version']})<br>&nbsp;{dl_info}")
+        else:
+            self.setWindowTitle("Check for updates: kbp2video up to date!")
+            self.setText(f"kbp2video current version {__version__} is running")
+
+        
+
 class Ui_MainWindow(QMainWindow):
 
     RELEVANT_FILE_FILTER = "*." + " *.".join(
         "kbp flac wav ogg opus mp3 aac mp4 mkv avi webm mov mpg mpeg jpg jpeg png gif jfif jxl bmp tiff webp".split())
 
-    def __init__(self):
+    def __init__(self, app):
         super().__init__()
         self.threadpool = QThreadPool()
+        self.app = app
         self.setupUi()
 
     # Convenience method for adding a Qt object as a property in self and and
@@ -512,12 +551,26 @@ class Ui_MainWindow(QMainWindow):
         self.bind("centralWidget", QWidget(self))
 
         self.setCentralWidget(self.centralWidget)
-        # TODO: Create menubar with contents
-        # self.menubar = QMenuBar()
-        # self.menubar.setObjectName("menubar")
-        # self.menubar.setGeometry(QRect(0, 0, 886, 25))
-        # self.menubar.addMenu("test")
-        # self.setMenuBar(self.menubar)
+
+        # TODO: Create menubar contents
+        self.menubar = QMenuBar()
+        self.menubar.setObjectName("menubar")
+        #self.menubar.setGeometry(QRect(0, 0, 886, 25))
+        self.filemenu = self.menubar.addMenu("File")
+        self.filemenu.addAction("&Add/Import Files", Qt.CTRL | Qt.Key_I, self.add_files_button)
+        self.filemenu.addAction("&Quit", QKeySequence.Quit, self.app.quit)
+        self.editmenu = self.menubar.addMenu("Edit")
+        # TODO: Ctrl-A already works, would this be helpful
+        #self.editmenu.addAction("&Select All", self.select_all)
+        self.editmenu.addAction("&Remove Selected", QKeySequence.Delete, self.remove_files_button)
+        self.editmenu.addAction("&Add empty row", self.add_row_button)
+        self.editmenu.addAction("&Open/Edit Selected Files", QKeySequence.Open, self.remove_files_button)
+        self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
+        self.helpmenu = self.menubar.addMenu("Help")
+        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
+        self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self, self.threadpool))
+        self.setMenuBar(self.menubar)
+
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
         try:
             q = QProcess(program="ffmpeg", arguments=["-version"])
@@ -938,7 +991,8 @@ class Ui_MainWindow(QMainWindow):
                 f"color: {self.colorText.text()}"))
 
     def advanced_button(self):
-        AdvancedEditor.showAdvancedEditor(self.tableWidget)
+        if self.tableWidget.selectedIndexes():
+            AdvancedEditor.showAdvancedEditor(self.tableWidget)
 
     def edit_button(self):
         rows = set(x.row() for x in self.tableWidget.selectedIndexes())
@@ -1102,11 +1156,9 @@ class Ui_MainWindow(QMainWindow):
 
     def audioffmpegBitrate(self):
         if self.acodecBox.currentText() == 'flac':
-            # return ''
             return {}
         # TODO: Good defaults based on format
         else:
-            #return self.abitrateBox.text() or '-b:a 256k' # This couldn't have been working before for manually entered
             return {"audio_bitrate": self.abitrateBox.text() or '256k'}
 
     def get_aspect_ratio(self):
@@ -1290,24 +1342,19 @@ class Ui_MainWindow(QMainWindow):
             if assOnly:
                 continue
 
-            #ffmpeg_options = ["-y"]
             output_options = {}
             base_assfile = os.path.basename(assfile)
             if background_type == 0:
-                #ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
                 background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi")
                 bg_size = QSize(*(int(x) for x in resolution.split('x')))
             elif background_type == 1:
                 bg_size = QImage(background).size()
-                #ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
                 background_video = ffmpeg.input(background, loop=1, framerate=60)
             elif background_type == 2:
                 # Pull the dimensions of the first video stream found in the file
                 bginfo = ffmpeg.probe(background)
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
-                #ffmpeg_options += ["-i", background]
                 background_video = ffmpeg.input(background).video
-            #ffmpeg_options += ["-i", audio]
 
             # TODO figure out time/frame for outro
             song_length = ffmpeg.probe(audio)['format']['duration']
@@ -1384,7 +1431,6 @@ class Ui_MainWindow(QMainWindow):
                 ass_move = {}
 
             if ass_move:
-                # ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
                 filtered_video = background_video.overlay(
                     ffmpeg_color(color="000000@0", r=60, s=f"{ass_size.width()}x{ass_size.height()}")
                         .filter_("format", "rgba")
@@ -1393,13 +1439,10 @@ class Ui_MainWindow(QMainWindow):
                     **ass_move
                 )
             else:
-                # ffmpeg_options += ["-vf", f"ass={base_assfile}"]
                 filtered_video = background_video.filter_("ass", base_assfile)
             if background_type == 0 or background_type == 1:
-                #ffmpeg_options += ["-shortest"]
                 output_options["shortest"] = None
             # TODO: should pix_fmt be configurable or change default based on codec?
-            #ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
             output_options.update(self.audioffmpegBitrate())
 
             if check2bool(self.lossless):
@@ -1417,7 +1460,6 @@ class Ui_MainWindow(QMainWindow):
                 output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
 
             output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
-            # ffmpeg_options += [self.vidFile(kbp)]
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print(f'cd "{os.path.dirname(assfile)}"')
@@ -1552,6 +1594,6 @@ def run(argv=sys.argv, ffmpeg_path=None):
     if not shutil.which("ffprobe"):
         QMessageBox.critical(None, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
         sys.exit(1)
-    window = Ui_MainWindow()
+    window = Ui_MainWindow(app)
     window.show()
     sys.exit(app.exec())
