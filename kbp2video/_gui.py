@@ -39,6 +39,9 @@ class KBPASSWrapper:
     def __init__(self, path):
         if path.endswith(".ass"):
             self.ass_path = path
+            # raise correct exception we would get later from opening
+            with open(path, "r") as _:
+                pass
         else:
             self.kbp_path = path
             self.kbp_obj = kbputils.KBPFile(path)
@@ -1243,6 +1246,7 @@ class Ui_MainWindow(QMainWindow):
             assOptions += ["--no-t"]
             kbputils_options['transparency'] = False
         kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
+        conversion_errors = False
         for row in range(self.tableWidget.rowCount()):
             kbp_table_item = self.tableWidget.item(row, TrackTableColumn.KBP_ASS.value)
             kbp_obj = kbp_table_item.data(Qt.UserRole) or kbp_table_item.text()
@@ -1272,12 +1276,26 @@ class Ui_MainWindow(QMainWindow):
 
             assfile = self.assFile(kbp)
 
+            # Handle manually-typed filename. TODO: convert earlier, when the text value is updated
+            if not isinstance(kbp_obj, KBPASSWrapper):
+                try:
+                    kbp_obj = KBPASSWrapper(kbp_obj)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to process file"),
+                        Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    continue
             if hasattr(kbp_obj, "kbp_path"):
                 print("Converting the new way")
                 print(kbputils_options)
                 try:
                     data = kbp_obj.ass_data(**kbputils_options)
                 except:
+                    conversion_errors = True
                     QMetaObject.invokeMethod(
                         self,
                         'info', 
@@ -1285,7 +1303,7 @@ class Ui_MainWindow(QMainWindow):
                         Q_ARG(str, "Failed to process kbp"),
                         Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
                     continue
-            elif kbp.endswith(".ass"): # kbp_obj is either a KBPASSWrapper with a .ass file, or a manually entered string with .ass
+            else: # kbp_obj is a KBPASSWrapper with a .ass file
                 if any(x in kbp for x in ":;,'=\""):
                     print("Already .ass file, but needs new filename for ffmpeg")
                     QFile(kbp).copy(assfile)
@@ -1293,22 +1311,6 @@ class Ui_MainWindow(QMainWindow):
                     print("Using existing .ass file")
                     assfile = kbp
                     
-            else:
-                print("Falling back to kbp2ass")
-                print("kbp2ass " + " ".join(assOptions) + " " + kbp)
-                q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
-                q.start()
-                q.waitForFinished(-1)
-                data = q.readAllStandardOutput()
-                if q.exitStatus() != QProcess.NormalExit or data.isEmpty():
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info', 
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Failed to process kbp"),
-                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
-                    continue
-
             # QDir is inconsistent. Needs to be static to check existence, and
             # mkdir needs to be run from an instantiated instance in the parent
             # directory, not worth the hassle
@@ -1352,14 +1354,38 @@ class Ui_MainWindow(QMainWindow):
                 background_video = ffmpeg.input(background, loop=1, framerate=60)
             elif background_type == 2:
                 # Pull the dimensions of the first video stream found in the file
-                bginfo = ffmpeg.probe(background)
+                try:
+                    bginfo = ffmpeg.probe(background)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info',
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Unable to process background video"),
+                        Q_ARG(str, f"Unable to determine the resolution of file\n{background}\n{traceback.format_exc()}"))
+                    continue
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
                 background_video = ffmpeg.input(background).video
 
+            song_length = None
             # TODO figure out time/frame for outro
-            song_length = ffmpeg.probe(audio)['format']['duration']
             for x in ("intro", "outro"):
                 if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
+                    if not song_length:
+                        try:
+                            song_length = ffmpeg.probe(audio)['format']['duration']
+                        except:
+                            conversion_errors = True
+                            QMetaObject.invokeMethod(
+                                self,
+                                'info',
+                                Qt.AutoConnection,
+                                Q_ARG(str, "Unable to process audio"),
+                                Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
+                            # See continue after this loop that skips iteration of outer loop
+                            song_length = -1
+                            break
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
@@ -1392,6 +1418,10 @@ class Ui_MainWindow(QMainWindow):
                                     fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
                             overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
                     background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
+
+            # Broke from inner loop after error
+            if song_length == -1:
+                continue
 
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
@@ -1459,7 +1489,12 @@ class Ui_MainWindow(QMainWindow):
                 output_options["video_bitrate"] = 0 # Required for the format to use CRF only
                 output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
 
-            output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
+            output_options.update({
+                "pix_fmt": "yuv420p",
+                "c:a": self.acodecBox.currentText(),
+                "c:v": self.vcodecBox.currentText(),
+                "hide_banner": None,
+            })
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print(f'cd "{os.path.dirname(assfile)}"')
@@ -1467,8 +1502,17 @@ class Ui_MainWindow(QMainWindow):
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
             q.start()
             q.waitForFinished(-1)
+            if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
+                conversion_errors = True
+                QMetaObject.invokeMethod(
+                    self,
+                    'info',
+                    Qt.AutoConnection,
+                    Q_ARG(str, "Failed to convert file"),
+                    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+
         
-        self.statusbar.showMessage("Conversion completed!")
+        self.statusbar.showMessage(f"Conversion completed{' (with errors)' if conversion_errors else ''}!")
         signals.finished.emit()
 
     def retranslateUi(self):
