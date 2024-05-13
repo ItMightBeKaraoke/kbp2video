@@ -21,12 +21,51 @@ from .advanced_editor import AdvancedEditor
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
 import enum
+import kbputils
+import io
+import shutil
+from . import __version__
+import traceback
+import lastversion
 
 class TrackTableColumn(enum.Enum):
-    KBP = 0
+    KBP_ASS = 0
     Audio = 1
     Background = 2
     Advanced = 3
+
+# TODO: Possibly pull PlayRes? from .ass to letterbox
+class KBPASSWrapper:
+    def __init__(self, path):
+        if path.endswith(".ass"):
+            self.ass_path = path
+            # raise correct exception we would get later from opening
+            with open(path, "r") as _:
+                pass
+        else:
+            self.kbp_path = path
+            self.kbp_obj = kbputils.KBPFile(path)
+    def ass_data(self, **kwargs):
+        if hasattr(self,"kbp_path"):
+            # Re-read file in case it changed on disk
+            self.kbp_obj = kbputils.KBPFile(self.kbp_path)
+
+            tmp = io.StringIO()
+            kbputils.AssConverter(self.kbp_obj,**kwargs).ass_document().dump_file(tmp)
+            return tmp.getvalue()
+        else:
+            # Added for symmetry or something, but...
+            print("Probably shouldn't reach this code")
+            f = QFile(self.ass_path)
+            if not f.open(QIODevice.ReadOnly | QIODevice.Text):                                                                                  
+                raise IOError(f"Unable to open {self.ass_path}")
+            res = QTextStream(f).readAll()
+            f.close()
+            return res
+
+    def __str__(self):
+        return self.kbp_path if hasattr(self,"kbp_path") else self.ass_path
+
 
 # This should *probably* be redone as a QTableView with a proxy to better
 # manage the data and separate it from display
@@ -40,7 +79,7 @@ class TrackTable(QTableWidget):
         self.setTabKeyNavigation(False)
         # TODO: update when support for both is included
         # self.setHorizontalHeaderLabels(["KBP/ASS", "Audio", "Background"])
-        self.setHorizontalHeaderLabels(list(TrackTableColumn.__members__.keys()))
+        self.setHorizontalHeaderLabels([x.replace("_", "/") for x in TrackTableColumn.__members__.keys()])
         self.hideColumn(TrackTableColumn.Advanced.value)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setDragEnabled(False)
@@ -67,13 +106,13 @@ class TrackTable(QTableWidget):
         if not item:
             return ""
         if res := item.data(Qt.UserRole):
-            return res
+            return str(res)
         else:
             return item.text()
 
     def item_filename(self, item):
         if res := item.data(Qt.UserRole):
-            return res
+            return str(res)
         else:
             return item.text()
 
@@ -81,10 +120,14 @@ class TrackTable(QTableWidget):
         mainWindow = self.parentWidget().parentWidget().parentWidget()
         if self.selectedRanges() == []:
             mainWindow.removeButton.setEnabled(False)
+            mainWindow.editButton.setEnabled(False)
             mainWindow.advancedButton.setEnabled(False)
+            mainWindow.colorApplyButton.setEnabled(False)
         else:
             mainWindow.removeButton.setEnabled(True)
+            mainWindow.editButton.setEnabled(True)
             mainWindow.advancedButton.setEnabled(True)
+            mainWindow.colorApplyButton.setEnabled(True)
 
     # TODO: Make user entered and imported work the same way
 
@@ -149,6 +192,14 @@ class FileResultSet(collections.namedtuple(
         if not key in data:
             data[key] = set()
         data[key].add(file)
+
+    # Include both kbp and ass results. If there is any key with both kbp and
+    # ass results, keep only the kbp ones (assuming previous work of kbp2video
+    # that needs redone)
+    def merged_kbp_ass_data(self):
+        data = self.ass.copy()
+        data.update(self.kbp)
+        return data
 
     def normalize(path):
         path = os.path.splitext(os.path.basename(path))[0]
@@ -248,31 +299,33 @@ class DropLabel(QLabel):
     def importFiles(self, data, drop=True):
         mainWindow = self.parentWidget().parentWidget().parentWidget()
         if data and (result := self.generateFileList(data)):
-            # for key, files in list(getattr(result, 'kbp').items()) + list(getattr(result, 'ass').items()):
-            # For now, will assume files will be taken through the whole
-            # process from kbp to video. Will later support going from .ass
-            # file
-            for key, files in result.kbp.items():
+            for key, files in result.merged_kbp_ass_data().items():
+            #for key, files in result.kbp.items():
                 # TODO: handle multiple kbp files under one key
-                kbpFile = next(iter(files))
+                kbpassFile = next(iter(files))
+                try:
+                    kbpassObj = KBPASSWrapper(kbpassFile)
+                except:
+                    QMessageBox.information(mainWindow, "Unable to process kbp", f"Failed to process .kbp file\n{kbpassFile}\n\nError Output:\n{traceback.format_exc()}")
+                    continue
                 table = self.parentWidget().widget(0)
                 current = table.rowCount()
                 table.setRowCount(current + 1)
-                item = QTableWidgetItem(os.path.basename(kbpFile))
-                item.setData(Qt.UserRole, kbpFile)
-                item.setToolTip(kbpFile)
+                item = QTableWidgetItem(os.path.basename(kbpassFile))
+                item.setData(Qt.UserRole, kbpassObj)
+                item.setToolTip(kbpassFile)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                 table.setItem(current, 0, item)
                 #if not (outputdir := mainWindow.outputDir).text():
                 #    outputdir.setText(os.path.dirname(kbpFile) + "/kbp2video")
-                mainWindow.lastinputdir = os.path.dirname(kbpFile)
+                mainWindow.lastinputdir = os.path.dirname(kbpassFile)
 
                 for filetype, column in (('audio', 1), ('background', 2)):
                     if column == 2 and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                         continue
                     # Update current in case sort moved it. Needs to be done each time in case one of these columns is the sort field
                     current = table.row(item)
-                    match = result.search(filetype, kbpFile)
+                    match = result.search(filetype, kbpassFile)
 
                     # If there happens to be only one kbp, assume all selected audio/backgrounds were intended for it
                     # Also, if there happens to be only one background, assume
@@ -289,7 +342,7 @@ class DropLabel(QLabel):
                     if len(match) > 1:
                         choice, ok = QInputDialog.getItem(
                             self.parentWidget(), f"Select {filetype} file to use",
-                            f"Multiple potential {filetype} files were found for {kbpFile}. Please select one, or enter a different path.",
+                            f"Multiple potential {filetype} files were found for {kbpassFile}. Please select one, or enter a different path.",
                             match)
                         if ok:
                             match = [choice]
@@ -302,16 +355,33 @@ class DropLabel(QLabel):
                     match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                     table.setItem(current, column, match_item)
 
-        if result.kbp:
+                # Process audio/background options from KBP file
+                current = table.row(item)
+                if hasattr((k := item.data(Qt.UserRole)), "kbp_obj"):
+                    if not table.item(current, TrackTableColumn.Audio.value).text() and (audio := k.kbp_obj.trackinfo["audio"]):
+                        # Audio is either absolute path or relative to kbp
+                        audio_path = os.path.join(os.path.dirname(str(k)), audio)
+                        audio_item = QTableWidgetItem(os.path.basename(audio_path))
+                        audio_item.setData(Qt.UserRole, audio_path)
+                        audio_item.setToolTip(audio_path)
+                        audio_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
+                        table.setItem(current, TrackTableColumn.Audio.value, audio_item)
+                    if not table.item(current, TrackTableColumn.Background.value).text():
+                        bg_color = k.kbp_obj.colors.as_rgb24()[0]
+                        bg_item = QTableWidgetItem(f"color: #{bg_color}")
+                        table.setItem(current, TrackTableColumn.Background.value, bg_item)
+
+        if result.kbp or result.ass:
             # Ui_MainWindow > QWidget > QStackedWidget > DropLabel
             # TODO: Seems like there should be a better way - maybe pass convertButton to constructor
             mainWindow.convertButton.setEnabled(True)
+            mainWindow.convertAssButton.setEnabled(True)
 
         elif result and (table := self.parentWidget().widget(0)).rowCount() > 0:
             # Try to fill in gaps
             # Need the item itself instead of the row due to potential reordering with sorting
             # TODO: figure out what to do if a kbp file is in the list twice - currently it just updates the last one
-            data = dict((table.key(row, TrackTableColumn.KBP.value), table.item(row, TrackTableColumn.KBP.value)) for row in range(table.rowCount()))
+            data = dict((table.key(row, TrackTableColumn.KBP_ASS.value), table.item(row, TrackTableColumn.KBP_ASS.value)) for row in range(table.rowCount()))
             for filetype, column in (('audio', TrackTableColumn.Audio.value), ('background', TrackTableColumn.Background.value)):
                 if column == TrackTableColumn.Background.value and drop and mainWindow.skipBackgrounds.checkState() == Qt.Checked:
                     continue
@@ -333,7 +403,7 @@ class DropLabel(QLabel):
                     if not search_results and len(result.all_files(filetype)) == 1:
                         search_results = data
 
-                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), TrackTableColumn.KBP.value), data[key]) for key in search_results):
+                    if match := dict((table.filename(table.indexFromItem(data[key]).row(), TrackTableColumn.KBP_ASS.value), data[key]) for key in search_results):
                         if len(match) > 1:
                             choice, ok = QInputDialog.getItem(
                                 self.parentWidget(), "Select KBP file to use",
@@ -357,6 +427,7 @@ class DropLabel(QLabel):
                                 if answer != QMessageBox.Yes:
                                     continue
                             match_item = QTableWidgetItem(os.path.basename(filenames[0]))
+                            # filetype in audio, background
                             match_item.setData(Qt.UserRole, filenames[0])
                             match_item.setToolTip(filenames[0])
                             match_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
@@ -408,6 +479,7 @@ class DropLabel(QLabel):
 class ConverterSignals(QObject):
     finished = Signal()
     progress = Signal(int, int)
+    data = Signal(dict)
 
 class Converter(QRunnable):
     def __init__(self, function, *args, **kwargs):
@@ -421,14 +493,57 @@ class Converter(QRunnable):
     def run(self):
         self.function(self.signals, *self.args, **self.kwargs)
 
+class EventFilter(QObject):
+    def __init__(self, parent, filter_fn):
+        super().__init__(parent)
+        self.eventFilter = filter_fn
+        
+
+class UpdateBox(QMessageBox):
+    def _lastversion_wrap(self, signals):
+        try:
+            result = {}
+            version = lastversion.has_update(repo="ItMightBeKaraoke/kbp2video", at="github", pre_ok=True, current_version=__version__)
+            if version:
+                result['version'] = version
+                result['urls'] = lastversion.latest(repo='ItMightBeKaraoke/kbp2video', pre_ok=True, output_format='assets')
+        except:
+            result = {'error': traceback.format_exc(limit=2)}
+        signals.data.emit(result)
+
+    def __init__(self, parent, threadpool):
+        super().__init__(QMessageBox.Information, "Check for updates", "Checking for updates...", QMessageBox.StandardButton(QMessageBox.Ok), parent=parent)
+        self.runner = Converter(self._lastversion_wrap)
+        self.runner.signals.data.connect(self._display_data)
+        threadpool.start(self.runner)
+    
+    def update_check(parent, threadpool):
+        box = UpdateBox(parent, threadpool)
+        box.exec()
+
+    def _display_data(self, data):
+        if 'error' in data:
+            self.setWindowTitle("Check for updates: failed!")
+            self.setText(f"Failed to check for update:\n{data['error']}")
+        elif data:
+            self.setWindowTitle("Check for updates: update available!")
+            dl_info = ''.join(f'<br>Download <a href="{url}">{url.split("/")[-1]}</a>' for url in data['urls'])
+            self.setText(f"New version of kbp2video available ({data['version']})<br>&nbsp;{dl_info}")
+        else:
+            self.setWindowTitle("Check for updates: kbp2video up to date!")
+            self.setText(f"kbp2video current version {__version__} is running")
+
+        
+
 class Ui_MainWindow(QMainWindow):
 
     RELEVANT_FILE_FILTER = "*." + " *.".join(
         "kbp flac wav ogg opus mp3 aac mp4 mkv avi webm mov mpg mpeg jpg jpeg png gif jfif jxl bmp tiff webp".split())
 
-    def __init__(self):
+    def __init__(self, app):
         super().__init__()
         self.threadpool = QThreadPool()
+        self.app = app
         self.setupUi()
 
     # Convenience method for adding a Qt object as a property in self and and
@@ -445,13 +560,41 @@ class Ui_MainWindow(QMainWindow):
         self.bind("centralWidget", QWidget(self))
 
         self.setCentralWidget(self.centralWidget)
-        # TODO: Create menubar with contents
-        # self.menubar = QMenuBar()
-        # self.menubar.setObjectName("menubar")
-        # self.menubar.setGeometry(QRect(0, 0, 886, 25))
-        # self.menubar.addMenu("test")
-        # self.setMenuBar(self.menubar)
+
+        # TODO: Create menubar contents
+        self.menubar = QMenuBar()
+        self.menubar.setObjectName("menubar")
+        #self.menubar.setGeometry(QRect(0, 0, 886, 25))
+        self.filemenu = self.menubar.addMenu("File")
+        self.filemenu.addAction("&Add/Import Files", Qt.CTRL | Qt.Key_I, self.add_files_button)
+        self.filemenu.addAction("&Quit", QKeySequence.Quit, self.app.quit)
+        self.editmenu = self.menubar.addMenu("Edit")
+        # TODO: Ctrl-A already works, would this be helpful
+        #self.editmenu.addAction("&Select All", self.select_all)
+        self.editmenu.addAction("&Remove Selected", QKeySequence.Delete, self.remove_files_button)
+        self.editmenu.addAction("&Add empty row", self.add_row_button)
+        self.editmenu.addAction("&Open/Edit Selected Files", QKeySequence.Open, self.remove_files_button)
+        self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
+        self.helpmenu = self.menubar.addMenu("Help")
+        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
+        self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self, self.threadpool))
+        self.setMenuBar(self.menubar)
+
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
+
+        # No point in updating the status bar with empty messages
+        self.installEventFilter(EventFilter(self, lambda obj, event: True if event.type() == QEvent.StatusTip and not event.tip() else False))
+
+        try:
+            q = QProcess(program="ffmpeg", arguments=["-version"])
+            q.start()
+            q.waitForFinished(1000)
+            q.setReadChannel(QProcess.StandardOutput)
+            version_line = str(q.readLine()).split()
+            ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
+        except:
+            ffmpeg_version = "MISSING/UNKNOWN"
+        self.statusbar.showMessage(f"kbp2video {__version__} (kbputils {kbputils.__version__}, ffmpeg {ffmpeg_version})")
 
         QCoreApplication.setOrganizationName("ItMightBeKaraoke")
         QCoreApplication.setApplicationName("kbp2video")
@@ -517,6 +660,12 @@ class Ui_MainWindow(QMainWindow):
             self.bind(
                 "addRowButton", QPushButton(
                     clicked=self.add_row_button)))
+
+        self.leftPaneButtons.addWidget(
+            self.bind(
+                "editButton", QPushButton(
+                    clicked=self.edit_button,
+                    enabled=False))) 
 
         self.leftPaneButtons.addWidget(
             self.bind(
@@ -619,6 +768,13 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
+        self.gridLayout.addWidget(
+            self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
+        self.gridLayout.addWidget(
+            self.bind("overflowLabel", ClickLabel(buddy=self.overflowBox)), gridRow, 0)
+        self.overflowBox.addItems(["no wrap","even split","top split","bottom split"])
+
+        gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
         self.gridLayout.setRowStretch(gridRow, 10)
 
@@ -628,7 +784,7 @@ class Ui_MainWindow(QMainWindow):
 
         gridRow += 1
         self.gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
-            clicked=self.color_apply_button)), gridRow, 0)
+            clicked=self.color_apply_button, enabled=False)), gridRow, 0)
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
             text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
@@ -770,7 +926,9 @@ class Ui_MainWindow(QMainWindow):
 
         gridRow += 1
         self.gridLayout.addWidget(
-            self.bind("convertButton", QPushButton(enabled=False, clicked=self.runConversion)), gridRow, 0, 1, 3)
+            self.bind("convertAssButton", QPushButton(enabled=False, clicked=self.runAssConversion)), gridRow, 0, 1, 1)
+        self.gridLayout.addWidget(
+            self.bind("convertButton", QPushButton(enabled=False, clicked=self.runConversion)), gridRow, 1, 1, 2)
 
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
@@ -826,13 +984,34 @@ class Ui_MainWindow(QMainWindow):
             self.loadSettings()
 
     def color_apply_button(self):
-        for row in range(self.tableWidget.rowCount()):
-            if not (cur := self.tableWidget.item(row, TrackTableColumn.Background.value)) or not cur.text():
-                self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
-                    f"color: {self.colorText.text()}"))
+        for row in sorted(
+                set(x.row() for x in self.tableWidget.selectedIndexes()),
+                reverse=True):
+            if self.tableWidget.item(row, TrackTableColumn.Background.value).text():
+                result = QMessageBox.question(
+                    self.parentWidget(),
+                    "Overwrite background fields?",
+                    f"Replace any existing background files or colors of the selected files with color {self.colorText.text()}?")
+                if result == QMessageBox.Yes:
+                    break
+                else:
+                    return
+
+        for row in sorted(
+                set(x.row() for x in self.tableWidget.selectedIndexes()),
+                reverse=True):
+            self.tableWidget.setItem(row, TrackTableColumn.Background.value, QTableWidgetItem(
+                f"color: {self.colorText.text()}"))
 
     def advanced_button(self):
-        AdvancedEditor.showAdvancedEditor(self.tableWidget)
+        if self.tableWidget.selectedIndexes():
+            AdvancedEditor.showAdvancedEditor(self.tableWidget)
+
+    def edit_button(self):
+        rows = set(x.row() for x in self.tableWidget.selectedIndexes())
+        if len(rows) == 1 or QMessageBox.question(self, f"Open {len(rows)} files?", f"Are you sure you want to open {len(rows)} files at the same time?") == QMessageBox.Yes:
+            for row in rows:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(self.tableWidget.filename(row, TrackTableColumn.KBP_ASS.value)))
 
     def color_choose_button(self):
         result = QColorDialog.getColor(
@@ -848,10 +1027,12 @@ class Ui_MainWindow(QMainWindow):
             self.tableWidget.removeRow(row)
         if self.tableWidget.rowCount() == 0:
             self.convertButton.setEnabled(False)
+            self.convertAssButton.setEnabled(False)
 
     def add_row_button(self):
         self.tableWidget.setRowCount(self.tableWidget.rowCount() + 1)
         self.convertButton.setEnabled(True)
+        self.convertAssButton.setEnabled(True)
 
     def updateColor(self, *_ignored, setColor=None):
         if setColor != None:
@@ -888,6 +1069,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/offset": self.offset.value(),
             "subtitle/override_offset": check2bool(self.overrideOffset),
             "subtitle/transparent_bg": check2bool(self.transparencyBox),
+            "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/output_resolution": self.resolutionBox.currentText(),
             "video/override_bg_resolution": check2bool(self.overrideBGResolution),
@@ -926,6 +1108,7 @@ class Ui_MainWindow(QMainWindow):
         self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
         self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
         self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.overflowBox.setCurrentText(self.settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
         # Restore existing or custom option
@@ -948,6 +1131,12 @@ class Ui_MainWindow(QMainWindow):
         self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
         self.saveSettings()  # Save to disk any new defaults that were used
 
+    def runAssConversion(self):
+        self.saveSettings()
+        converter = Converter(self.conversion_runner, assOnly = True)
+        # worker.signals.finished.connect
+        self.threadpool.start(converter)
+
     def runConversion(self):
         self.saveSettings()
         converter = Converter(self.conversion_runner)
@@ -956,10 +1145,16 @@ class Ui_MainWindow(QMainWindow):
 
     def resolved_output_dir(self, kbp):
         if check2bool(self.relative):
-            # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
-            return os.path.join(os.path.dirname(kbp), self.outputDir.text())
+
+            # If relative is set, assume .ass dir is the output dir because we
+            # no longer know the project file
+            if kbp.endswith(".ass"):
+                return os.path.dirname(kbp)
+            else:
+                # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
+                return os.path.join(os.path.dirname(kbp), self.outputDir.text())
         else:
-            return self.output_dir()
+            return self.outputDir.text()
     
     def assFile(self, kbp):
         filename = os.path.basename(kbp)
@@ -974,11 +1169,9 @@ class Ui_MainWindow(QMainWindow):
 
     def audioffmpegBitrate(self):
         if self.acodecBox.currentText() == 'flac':
-            # return ''
             return {}
         # TODO: Good defaults based on format
         else:
-            #return self.abitrateBox.text() or '-b:a 256k' # This couldn't have been working before for manually entered
             return {"audio_bitrate": self.abitrateBox.text() or '256k'}
 
     def get_aspect_ratio(self):
@@ -1015,9 +1208,10 @@ class Ui_MainWindow(QMainWindow):
     def info(self, title, text):
         QMessageBox.information(self, title, text)
 
-    def conversion_runner(self, signals):
+    def conversion_runner(self, signals, assOnly = False):
         unsupported_message = False
         assOptions = ["-f"]
+        kbputils_options = {}
         ratio, border = self.get_aspect_ratio()
         if ratio[0] is None or border is None:
             QMetaObject.invokeMethod(
@@ -1025,24 +1219,48 @@ class Ui_MainWindow(QMainWindow):
                 'info', 
                 Qt.AutoConnection,
                 Q_ARG(str, "Invalid Aspect Ratio setting"),
-                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available selections or follow the format in parens if you set a custom value."))
+                Q_ARG(str, f"Invalid Aspect Ratio setting\nPlease choose from the available options or follow the format in parens if you set a custom value."))
             return
         if ratio[1] is None:
             ratio[1] = 216
+        resolution = self.resolutionBox.currentText().split()[0]
+        if len(tmp := resolution.split("x")) != 2 or any(not re.match(r'\d+$', x) for x in tmp):
+            QMetaObject.invokeMethod(
+                self,
+                'info', 
+                Qt.AutoConnection,
+                Q_ARG(str, "Invalid Resolution setting"),
+                Q_ARG(str, f"Invalid Resolution setting\nPlease choose from the available options or enter a width and height separated by x."))
+            return
+        tmp = [int(x) for x in tmp]
+        if tmp[1] * ratio[0] / ratio[1] >= tmp[0]:
+            kbputils_options['target_x'] = tmp[0]
+            kbputils_options['target_y'] = int(tmp[0] * ratio[1] / ratio[0])
+        else:
+            kbputils_options['target_y'] = tmp[1]
+            kbputils_options['target_x'] = int(tmp[1] * ratio[0] / ratio[1])
         width = round((216 if border else 192) * ratio[0] / ratio[1])
         default_bg = self.colorText.text().strip(" #")
         if width != 300:
             assOptions += ["-W", f"{width}"]
         if not border:
             assOptions += ["--no-b"]
+            kbputils_options['border'] = False
         assOptions += ["-F", f"{self.fadeIn.value()},{self.fadeOut.value()}"]
+        kbputils_options['fade_in'] = self.fadeIn.value()
+        kbputils_options['fade_out'] = self.fadeOut.value()
         if self.overrideOffset.checkState() == Qt.Checked:
             assOptions += ["-o", f"{self.offset.value()}"]
+            kbputils_options['offset'] = self.offset.value()
         if self.transparencyBox.checkState() != Qt.Checked:
             assOptions += ["--no-t"]
-        resolution = self.resolutionBox.currentText().split()[0]
+            kbputils_options['transparency'] = False
+        kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
+        conversion_errors = False
         for row in range(self.tableWidget.rowCount()):
-            kbp = self.tableWidget.filename(row, TrackTableColumn.KBP.value)
+            kbp_table_item = self.tableWidget.item(row, TrackTableColumn.KBP_ASS.value)
+            kbp_obj = kbp_table_item.data(Qt.UserRole) or kbp_table_item.text()
+            kbp = str(kbp_obj)
             audio = self.tableWidget.filename(row, TrackTableColumn.Audio.value)
             background = self.tableWidget.filename(row, TrackTableColumn.Background.value)
             advanced = self.tableWidget.item(row, TrackTableColumn.Advanced.value).data(Qt.UserRole) or {}
@@ -1065,68 +1283,119 @@ class Ui_MainWindow(QMainWindow):
             if background_type == None:
                 background_type = 0
                 background = default_bg
-            print("kbp2ass " + " ".join(assOptions) + " " + kbp)
-            q = QProcess(program="kbp2ass", arguments=assOptions+[kbp])
-            q.start()
-            q.waitForFinished(-1)
-            data = q.readAllStandardOutput()
-            if q.exitStatus() != QProcess.NormalExit or data.isEmpty():
-                QMetaObject.invokeMethod(
-                    self,
-                    'info', 
-                    Qt.AutoConnection,
-                    Q_ARG(str, "Failed to process kbp"),
-                    Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
-                continue
+
             assfile = self.assFile(kbp)
 
+            # Handle manually-typed filename. TODO: convert earlier, when the text value is updated
+            if not isinstance(kbp_obj, KBPASSWrapper):
+                try:
+                    kbp_obj = KBPASSWrapper(kbp_obj)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to process file"),
+                        Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    continue
+            if hasattr(kbp_obj, "kbp_path"):
+                print("Converting the new way")
+                print(kbputils_options)
+                try:
+                    data = kbp_obj.ass_data(**kbputils_options)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to process kbp"),
+                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    continue
+            else: # kbp_obj is a KBPASSWrapper with a .ass file
+                if any(x in kbp for x in ":;,'=\""):
+                    print("Already .ass file, but needs new filename for ffmpeg")
+                    QFile(kbp).copy(assfile)
+                else:
+                    print("Using existing .ass file")
+                    assfile = kbp
+                    
             # QDir is inconsistent. Needs to be static to check existence, and
             # mkdir needs to be run from an instantiated instance in the parent
             # directory, not worth the hassle
-            if not os.path.isdir(outdir := os.path.dirname(assfile)):
+            if not os.path.isdir(outdir := self.resolved_output_dir(kbp)):
                 os.mkdir(outdir)
 
-            f = QFile(assfile)
-            if f.exists():
-                answer = QMessageBox.StandardButton(QMetaObject.invokeMethod(
-                    self,
-                    'yesno',
-                    Qt.BlockingQueuedConnection,
-                    Q_RETURN_ARG(int),
-                    Q_ARG(str, "Replace file?"),
-                    Q_ARG(str, f"Overwrite {assfile}?")))
-                if answer != QMessageBox.Yes:
+            # File was converted and .ass file needs to be written
+            if kbp.endswith(".kbp"):
+                f = QFile(assfile)
+                if f.exists():
+                    answer = QMessageBox.StandardButton(QMetaObject.invokeMethod(
+                        self,
+                        'yesno',
+                        Qt.BlockingQueuedConnection,
+                        Q_RETURN_ARG(int),
+                        Q_ARG(str, "Replace file?"),
+                        Q_ARG(str, f"Overwrite {assfile}?")))
+                    if answer != QMessageBox.Yes:
+                        continue
+                if not f.open(QIODevice.WriteOnly | QIODevice.Text):
                     continue
-            if not f.open(QIODevice.WriteOnly | QIODevice.Text):
+                out = QTextStream(f)
+                out << data
+                f.close()
+                if assOnly:
+                    kbp_table_item.setData(Qt.UserRole, KBPASSWrapper(assfile))
+                    kbp_table_item.setText(os.path.basename(assfile))
+                    kbp_table_item.setToolTip(assfile)
+                    kbp_table_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
+
+            if assOnly:
                 continue
-            out = QTextStream(f)
-            out << data
-            f.close()
 
-
-            #ffmpeg_options = ["-y"]
             output_options = {}
             base_assfile = os.path.basename(assfile)
             if background_type == 0:
-                #ffmpeg_options += f"-f lavfi -i color=color={background}:r=60:s={resolution}".split()
                 background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi")
                 bg_size = QSize(*(int(x) for x in resolution.split('x')))
             elif background_type == 1:
                 bg_size = QImage(background).size()
-                #ffmpeg_options += f"-loop 1 -framerate 60 -i".split() + [background]
                 background_video = ffmpeg.input(background, loop=1, framerate=60)
             elif background_type == 2:
                 # Pull the dimensions of the first video stream found in the file
-                bginfo = ffmpeg.probe(background)
+                try:
+                    bginfo = ffmpeg.probe(background)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info',
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Unable to process background video"),
+                        Q_ARG(str, f"Unable to determine the resolution of file\n{background}\n{traceback.format_exc()}"))
+                    continue
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
-                #ffmpeg_options += ["-i", background]
                 background_video = ffmpeg.input(background).video
-            #ffmpeg_options += ["-i", audio]
 
+            song_length = None
             # TODO figure out time/frame for outro
-            song_length = ffmpeg.probe(audio)['format']['duration']
             for x in ("intro", "outro"):
                 if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
+                    if not song_length:
+                        try:
+                            song_length = ffmpeg.probe(audio)['format']['duration']
+                        except:
+                            conversion_errors = True
+                            QMetaObject.invokeMethod(
+                                self,
+                                'info',
+                                Qt.AutoConnection,
+                                Q_ARG(str, "Unable to process audio"),
+                                Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
+                            # See continue after this loop that skips iteration of outer loop
+                            song_length = -1
+                            break
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
@@ -1159,6 +1428,10 @@ class Ui_MainWindow(QMainWindow):
                                     fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
                             overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
                     background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
+
+            # Broke from inner loop after error
+            if song_length == -1:
+                continue
 
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
@@ -1198,7 +1471,6 @@ class Ui_MainWindow(QMainWindow):
                 ass_move = {}
 
             if ass_move:
-                # ffmpeg_options += ["-filter_complex", f"color=color=000000@0:r=60:s={ass_size.width()}x{ass_size.height()},format=rgba,ass={base_assfile}:alpha=1[out1];[0:v][out1]overlay=eof_action=pass{ass_move}[out]", "-map", "[out]:v", "-map", "1:a"]
                 filtered_video = background_video.overlay(
                     ffmpeg_color(color="000000@0", r=60, s=f"{ass_size.width()}x{ass_size.height()}")
                         .filter_("format", "rgba")
@@ -1207,13 +1479,10 @@ class Ui_MainWindow(QMainWindow):
                     **ass_move
                 )
             else:
-                # ffmpeg_options += ["-vf", f"ass={base_assfile}"]
                 filtered_video = background_video.filter_("ass", base_assfile)
             if background_type == 0 or background_type == 1:
-                #ffmpeg_options += ["-shortest"]
                 output_options["shortest"] = None
             # TODO: should pix_fmt be configurable or change default based on codec?
-            #ffmpeg_options += f"-pix_fmt yuv420p -c:a {self.acodecBox.currentText()} {self.audioffmpegBitrate()} -c:v {self.vcodecBox.currentText()}".split()
             output_options.update(self.audioffmpegBitrate())
 
             if check2bool(self.lossless):
@@ -1230,8 +1499,12 @@ class Ui_MainWindow(QMainWindow):
                 output_options["video_bitrate"] = 0 # Required for the format to use CRF only
                 output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
 
-            output_options.update({"pix_fmt": "yuv420p", "c:a": self.acodecBox.currentText(), "c:v": self.vcodecBox.currentText()})
-            # ffmpeg_options += [self.vidFile(kbp)]
+            output_options.update({
+                "pix_fmt": "yuv420p",
+                "c:a": self.acodecBox.currentText(),
+                "c:v": self.vcodecBox.currentText(),
+                "hide_banner": None,
+            })
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print(f'cd "{os.path.dirname(assfile)}"')
@@ -1239,8 +1512,17 @@ class Ui_MainWindow(QMainWindow):
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
             q.start()
             q.waitForFinished(-1)
+            if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
+                conversion_errors = True
+                QMetaObject.invokeMethod(
+                    self,
+                    'info',
+                    Qt.AutoConnection,
+                    Q_ARG(str, "Failed to convert file"),
+                    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+
         
-        self.statusbar.showMessage("Conversion completed!")
+        self.statusbar.showMessage(f"Conversion completed{' (with errors)' if conversion_errors else ''}!")
         signals.finished.emit()
 
     def retranslateUi(self):
@@ -1248,6 +1530,8 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "KBP to Video", None))
         self.addButton.setText(QCoreApplication.translate(
             "MainWindow", "&Add Files...", None))
+        self.editButton.setText(QCoreApplication.translate(
+            "MainWindow", "Edit files...", None))
         self.advancedButton.setText(QCoreApplication.translate(
             "MainWindow", "Set Intro&/Outro...", None))
         self.colorChooseButton.setText(QCoreApplication.translate(
@@ -1280,6 +1564,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "&Draw BG color transparent", None))
         self.transparencyLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When using palette index 0 as a font or border color in KBS, make that color\ntransparent in the resulting .ass file. This improves compatibility with\ndrawing appearing and overlapping text. ", None))
+        self.overflowLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Word Wrappin&g", None))
+        self.overflowBox.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When a line is too wide for the screen, use this strategy to wrap words\n  no wrap: Allow text to go off screen\n  even split: Wrap words in a way that makes the following line(s) about the same size\n  top split: Keep the first line long, only wrap at the word that causes it to go offscreen\n  bottom split: Make the bottom line long when wrapping", None))
         self.overrideOffsetLabel.setText(QCoreApplication.translate(
             "MainWindow", "Overr&ide Timestamp Offset", None))
         self.overrideOffsetLabel.setToolTip(QCoreApplication.translate(
@@ -1303,7 +1591,7 @@ class Ui_MainWindow(QMainWindow):
         self.abitrateBox.setPlaceholderText(QCoreApplication.translate(
             "MainWindow", "Leave blank for default", None))
         self.overrideBGLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Override back&ground", None))
+            "MainWindow", "Override background", None))
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
         self.losslessLabel.setText(QCoreApplication.translate(
@@ -1331,14 +1619,35 @@ class Ui_MainWindow(QMainWindow):
         self.resetButton.setText(QCoreApplication.translate(
             "MainWindow", "Reset Settings&...", None))
         self.convertButton.setText(QCoreApplication.translate(
-            "MainWindow", "&Convert", None))
+            "MainWindow", "&Convert to Video", None))
+        self.convertAssButton.setText(QCoreApplication.translate(
+            "MainWindow", "Subtitle onl&y", None))
     # retranslateUi
 
 
-def run(argv=sys.argv):
+def run(argv=sys.argv, ffmpeg_path=None):
+    if '--help' in argv or '-h' in argv:
+        print("kbp2video [[--help | -h] | [--version | -V]] [Qt6 options]")
+        sys.exit(0)
+    elif '--version' in argv or '-V' in argv:
+        print(__version__)
+        sys.exit(0)
     # Look better on Windows
     QApplication.setStyle("Fusion")
     app = QApplication(argv)
-    window = Ui_MainWindow()
+    orig_path = os.environ['PATH']
+    if ffmpeg_path:
+        os.environ['PATH'] = os.pathsep.join([ffmpeg_path, os.environ['PATH']])
+    if not shutil.which("ffmpeg"):
+        result = QFileDialog.getExistingDirectory(None, "Locate folder with ffmpeg and ffprobe")
+        if result:
+            os.environ['PATH'] = os.pathsep.join([result, orig_path])
+        if not shutil.which("ffmpeg"):
+            QMessageBox.critical(None, "ffmpeg not found", "ffmpeg still not found, please download the full release or otherwise install ffmpeg.")
+            sys.exit(1)
+    if not shutil.which("ffprobe"):
+        QMessageBox.critical(None, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
+        sys.exit(1)
+    window = Ui_MainWindow(app)
     window.show()
     sys.exit(app.exec())
