@@ -493,6 +493,12 @@ class Converter(QRunnable):
     def run(self):
         self.function(self.signals, *self.args, **self.kwargs)
 
+class EventFilter(QObject):
+    def __init__(self, parent, filter_fn):
+        super().__init__(parent)
+        self.eventFilter = filter_fn
+        
+
 class UpdateBox(QMessageBox):
     def _lastversion_wrap(self, signals):
         try:
@@ -575,6 +581,10 @@ class Ui_MainWindow(QMainWindow):
         self.setMenuBar(self.menubar)
 
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
+
+        # No point in updating the status bar with empty messages
+        self.installEventFilter(EventFilter(self, lambda obj, event: True if event.type() == QEvent.StatusTip and not event.tip() else False))
+
         try:
             q = QProcess(program="ffmpeg", arguments=["-version"])
             q.start()
