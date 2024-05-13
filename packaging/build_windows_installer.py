@@ -13,6 +13,8 @@ import glob
 # pynist used to run the build at the end
 # kbputils to pull the latest version
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--target', 'tmp', '--upgrade', 'pynsist', 'kbputils'])
+# Apparently required by feedparser required by lastversion, and sdist-only on PyPI
+subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', 'sgmllib3k'])
 
 # Pull current version of kbp2video from parent dir
 # Note that a fresh copy will be later fetched from PyPI which will ensure
