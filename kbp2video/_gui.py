@@ -768,6 +768,10 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
+        self.gridLayout.addWidget(self.bind("ktBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("ktLabel", ClickLabel(buddy=self.ktBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.gridLayout.addWidget(
             self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
         self.gridLayout.addWidget(
@@ -1069,6 +1073,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/offset": self.offset.value(),
             "subtitle/override_offset": check2bool(self.overrideOffset),
             "subtitle/transparent_bg": check2bool(self.transparencyBox),
+            "subtitle/allow_kt": check2bool(self.ktBox),
             "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/output_resolution": self.resolutionBox.currentText(),
@@ -1108,6 +1113,7 @@ class Ui_MainWindow(QMainWindow):
         self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
         self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
         self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.ktBox.setCheckState(bool2check(self.settings.value("subtitle/allow_kt", type=bool, defaultValue=False)))
         self.overflowBox.setCurrentText(self.settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
@@ -1210,7 +1216,6 @@ class Ui_MainWindow(QMainWindow):
 
     def conversion_runner(self, signals, assOnly = False):
         unsupported_message = False
-        assOptions = ["-f"]
         kbputils_options = {}
         ratio, border = self.get_aspect_ratio()
         if ratio[0] is None or border is None:
@@ -1241,20 +1246,16 @@ class Ui_MainWindow(QMainWindow):
             kbputils_options['target_x'] = int(tmp[1] * ratio[0] / ratio[1])
         width = round((216 if border else 192) * ratio[0] / ratio[1])
         default_bg = self.colorText.text().strip(" #")
-        if width != 300:
-            assOptions += ["-W", f"{width}"]
         if not border:
-            assOptions += ["--no-b"]
             kbputils_options['border'] = False
-        assOptions += ["-F", f"{self.fadeIn.value()},{self.fadeOut.value()}"]
         kbputils_options['fade_in'] = self.fadeIn.value()
         kbputils_options['fade_out'] = self.fadeOut.value()
         if self.overrideOffset.checkState() == Qt.Checked:
-            assOptions += ["-o", f"{self.offset.value()}"]
             kbputils_options['offset'] = self.offset.value()
         if self.transparencyBox.checkState() != Qt.Checked:
-            assOptions += ["--no-t"]
             kbputils_options['transparency'] = False
+        if self.ktBox.checkState() == Qt.Checked:
+            kbputils_options['allow_kt'] = True
         kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
         conversion_errors = False
         for row in range(self.tableWidget.rowCount()):
@@ -1564,6 +1565,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "&Draw BG color transparent", None))
         self.transparencyLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When using palette index 0 as a font or border color in KBS, make that color\ntransparent in the resulting .ass file. This improves compatibility with\ndrawing appearing and overlapping text. ", None))
+        self.ktLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Use \\&kt to allow overlapping wipes", None))
+        self.ktLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When wipes overlap on the same line, handle it by adding \\kt tags\nto show the wipes at their chosen times. Note that\n1) This is different from KBS that just tries to wipe it fast after the previous wipe\n2) It's not supported by some ASS tools, including Aegisub.", None))
         self.overflowLabel.setText(QCoreApplication.translate(
             "MainWindow", "Word Wrappin&g", None))
         self.overflowBox.setToolTip(QCoreApplication.translate(
