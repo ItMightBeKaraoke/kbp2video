@@ -1326,7 +1326,17 @@ class Ui_MainWindow(QMainWindow):
             # mkdir needs to be run from an instantiated instance in the parent
             # directory, not worth the hassle
             if not os.path.isdir(outdir := self.resolved_output_dir(kbp)):
-                os.mkdir(outdir)
+                try:
+                    os.mkdir(outdir)
+                except:
+                    conversion_errors = True
+                    QMetaObject.invokeMethod(
+                        self,
+                        'info', 
+                        Qt.AutoConnection,
+                        Q_ARG(str, "Failed to create output folder"),
+                        Q_ARG(str, f"Failed to create missing output folder\n{outdir}\n\nError Output:\n{traceback.format_exc()}"))
+                    continue
 
             # File was converted and .ass file needs to be written
             if kbp.endswith(".kbp"):
