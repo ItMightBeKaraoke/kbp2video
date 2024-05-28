@@ -18,6 +18,7 @@ from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
 from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
+from .progress_window import ProgressWindow
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
 import enum
@@ -477,8 +478,10 @@ class DropLabel(QLabel):
         self.parentWidget().setCurrentIndex(0)
 
 class ConverterSignals(QObject):
+    started = Signal()
     finished = Signal()
-    progress = Signal(int, int)
+    progress = Signal(int, str, int, int)
+    error = Signal(str, bool)
     data = Signal(dict)
 
 class Converter(QRunnable):
@@ -590,7 +593,7 @@ class Ui_MainWindow(QMainWindow):
             q.start()
             q.waitForFinished(1000)
             q.setReadChannel(QProcess.StandardOutput)
-            version_line = str(q.readLine()).split()
+            version_line = q.readLine().toStdString().split()
             ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
         except:
             ffmpeg_version = "MISSING/UNKNOWN"
@@ -1148,6 +1151,8 @@ class Ui_MainWindow(QMainWindow):
         converter = Converter(self.conversion_runner)
         # worker.signals.finished.connect
         self.threadpool.start(converter)
+        ProgressWindow.showProgressWindow(self.tableWidget.rowCount(), converter.signals, self)
+        # TODO: handle cancel
 
     def resolved_output_dir(self, kbp):
         if check2bool(self.relative):
@@ -1215,6 +1220,7 @@ class Ui_MainWindow(QMainWindow):
         QMessageBox.information(self, title, text)
 
     def conversion_runner(self, signals, assOnly = False):
+        signals.started.emit()
         unsupported_message = False
         kbputils_options = {}
         ratio, border = self.get_aspect_ratio()
@@ -1270,6 +1276,7 @@ class Ui_MainWindow(QMainWindow):
             if not kbp:
                 continue
             self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
+            signals.progress.emit(row, kbp, 0, 100)
             background_type = None
             if not background:
                 pass
@@ -1389,24 +1396,23 @@ class Ui_MainWindow(QMainWindow):
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
                 background_video = ffmpeg.input(background).video
 
-            song_length = None
+            try:
+                song_length = ffmpeg.probe(audio)['format']['duration']
+                song_length_float = float(song_length)
+            except:
+                conversion_errors = True
+                QMetaObject.invokeMethod(
+                    self,
+                    'info',
+                    Qt.AutoConnection,
+                    Q_ARG(str, "Unable to process audio"),
+                    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
+                # See continue after this loop that skips iteration of outer loop
+                continue
+            song_length_us = int(song_length_float * 1e6)
             # TODO figure out time/frame for outro
             for x in ("intro", "outro"):
                 if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
-                    if not song_length:
-                        try:
-                            song_length = ffmpeg.probe(audio)['format']['duration']
-                        except:
-                            conversion_errors = True
-                            QMetaObject.invokeMethod(
-                                self,
-                                'info',
-                                Qt.AutoConnection,
-                                Q_ARG(str, "Unable to process audio"),
-                                Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
-                            # See continue after this loop that skips iteration of outer loop
-                            song_length = -1
-                            break
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
@@ -1418,7 +1424,7 @@ class Ui_MainWindow(QMainWindow):
                         "scale", s=f"{bg_size.width()}x{bg_size.height()}")
                     if x == "outro":
                         #leadin = ffmpeg_color("000000", s=f"{bg_size.width()}x{bg_size.height()}", r=60, d=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1]))).filter_("format", "rgba")
-                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1])))
+                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=(song_length_float - float(advanced[f"{x}_length"].split(":")[1])))
                         overlay = leadin.concat(overlay)
                     for y in ("In", "Out"):
                         if float(advanced[f"{x}_fade{y}"].split(":")[1]):
@@ -1434,15 +1440,11 @@ class Ui_MainWindow(QMainWindow):
                                     fade_settings["st"] = float(advanced[f"{x}_length"].split(":")[1]) - float(advanced[f"{x}_fadeOut"].split(":")[1])
                             else:
                                 if y == "Out":
-                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                                    fade_settings["st"] = song_length_float - float(advanced[f"{x}_fadeOut"].split(":")[1])
                                 else:
-                                    fade_settings["st"] = float(song_length) - float(advanced[f"{x}_length"].split(":")[1])
+                                    fade_settings["st"] = song_length_float - float(advanced[f"{x}_length"].split(":")[1])
                             overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
                     background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
-
-            # Broke from inner loop after error
-            if song_length == -1:
-                continue
 
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
@@ -1515,14 +1517,22 @@ class Ui_MainWindow(QMainWindow):
                 "c:a": self.acodecBox.currentText(),
                 "c:v": self.vcodecBox.currentText(),
                 "hide_banner": None,
+                "progress": "-",
+                "loglevel": "error"
             })
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
             print(f'cd "{os.path.dirname(assfile)}"')
             print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            q.setReadChannel(QProcess.StandardOutput)
             q.start()
-            q.waitForFinished(-1)
+            q.waitForStarted(-1)
+            while not q.waitForFinished(100):
+                while q.canReadLine():
+                    if (ffmpeg_out_line := q.readLine().toStdString()).startswith("out_time_us="):
+                        signals.progress.emit(row, kbp, int(ffmpeg_out_line.split("=")[1]), song_length_us)
+
             if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
                 conversion_errors = True
                 QMetaObject.invokeMethod(
@@ -1531,6 +1541,7 @@ class Ui_MainWindow(QMainWindow):
                     Qt.AutoConnection,
                     Q_ARG(str, "Failed to convert file"),
                     Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+            signals.progress.emit(row, kbp, song_length_us, song_length_us)
 
         
         self.statusbar.showMessage(f"Conversion completed{' (with errors)' if conversion_errors else ''}!")
