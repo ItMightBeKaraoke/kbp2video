@@ -52,8 +52,9 @@ class ProgressWindow(QDialog):
         self.file_label.setText(QCoreApplication.translate("ProgressWindow", "File progress"))
         self.errors_label.setText(QCoreApplication.translate("ProgressWindow", "Errors encountered:"))
 
-    def process_progress(self, cur, file, progress, total):
-        cur = cur - self.fatal_errors
+    def process_progress(self, cur, rows, file, progress, total):
+        # Avoid double-counting ones that were removed during initial processing
+        cur = cur - self.fatal_errors + self.file_count - rows
         count = self.file_count - self.fatal_errors
         self.file_label.setText(f"Processing file {cur + 1} of {count}: {file}")
         self.file.setMaximum(total)
@@ -61,7 +62,7 @@ class ProgressWindow(QDialog):
         if count == 0:
             self.overall.setMaximum(100)
             self.overall.setValue(100)
-        else:
+        elif total != 0:
             self.overall.setMaximum(count * 100)
             self.overall.setValue(cur * 100 + int(progress * 100 / total))
 

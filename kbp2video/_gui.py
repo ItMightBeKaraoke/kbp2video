@@ -480,7 +480,7 @@ class DropLabel(QLabel):
 class ConverterSignals(QObject):
     started = Signal()
     finished = Signal()
-    progress = Signal(int, str, int, int)
+    progress = Signal(int, int, str, int, int)
     error = Signal(str, bool)
     data = Signal(dict)
 
@@ -1264,6 +1264,7 @@ class Ui_MainWindow(QMainWindow):
             kbputils_options['allow_kt'] = True
         kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
         conversion_errors = False
+        ffmpeg_processes = []
         for row in range(self.tableWidget.rowCount()):
             kbp_table_item = self.tableWidget.item(row, TrackTableColumn.KBP_ASS.value)
             kbp_obj = kbp_table_item.data(Qt.UserRole) or kbp_table_item.text()
@@ -1276,7 +1277,7 @@ class Ui_MainWindow(QMainWindow):
             if not kbp:
                 continue
             self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
-            signals.progress.emit(row, kbp, 0, 100)
+            signals.progress.emit(row, self.tableWidget.rowCount(), kbp, 0, 0)
             background_type = None
             if not background:
                 pass
@@ -1360,7 +1361,7 @@ class Ui_MainWindow(QMainWindow):
                         Q_ARG(str, "Replace file?"),
                         Q_ARG(str, f"Overwrite {assfile}?")))
                     if answer != QMessageBox.Yes:
-                        signals.error.emit(f"Skipped {assfile} per user request (file exists)", True)
+                        signals.error.emit(f"Skipped {kbp} per user request (.ass file exists)", True)
                         continue
                 if not f.open(QIODevice.WriteOnly | QIODevice.Text):
                     continue
@@ -1532,11 +1533,14 @@ class Ui_MainWindow(QMainWindow):
             print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
             q.setReadChannel(QProcess.StandardOutput)
+            ffmpeg_processes.append((kbp, song_length_us, q))
+
+        for row, (kbp, song_length_us, q) in enumerate(ffmpeg_processes):
             q.start()
             q.waitForStarted(-1)
             while not q.waitForFinished(100):
                 if signals.cancelled:
-                    self.statusbar.showMessage(f"Conversion cancelled during file {row+1} of {self.tableWidget.rowCount()}!")
+                    self.statusbar.showMessage(f"Conversion cancelled during file {row+1} of {len(ffmpeg_processes)}!")
                     signals.finished.emit()
                     return
                 while q.canReadLine():
@@ -1546,7 +1550,7 @@ class Ui_MainWindow(QMainWindow):
                         except:
                             pass # TODO: maybe switch to throbber if ffmpeg isn't outputting progress properly?
                         else:
-                            signals.progress.emit(row, kbp, out_time, song_length_us)
+                            signals.progress.emit(row, len(ffmpeg_processes), kbp, out_time, song_length_us)
 
             if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
                 conversion_errors = True
@@ -1560,8 +1564,7 @@ class Ui_MainWindow(QMainWindow):
                 print(q.exitStatus())
                 print(q.exitCode())
 
-            signals.progress.emit(row, kbp, song_length_us, song_length_us)
-
+            signals.progress.emit(row, len(ffmpeg_processes), kbp, song_length_us, song_length_us)
         
         self.statusbar.showMessage(f"Conversion completed{' (with errors)' if conversion_errors else ''}!")
         signals.finished.emit()
