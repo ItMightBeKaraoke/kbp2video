@@ -24,7 +24,7 @@ class ProgressWindow(QDialog):
     def __init__(self, file_count, parent=None):
         super().__init__(parent)
         self.file_count = file_count
-        self.has_errors = False
+        self.fatal_errors = 0
         self.setupUi()
 
     def setupUi(self):
@@ -53,24 +53,26 @@ class ProgressWindow(QDialog):
         self.errors_label.setText(QCoreApplication.translate("ProgressWindow", "Errors encountered:"))
 
     def process_progress(self, cur, file, progress, total):
-        self.file_label.setText(f"Processing file {cur + 1} of {self.file_count}: {file}")
+        cur = cur - self.fatal_errors
+        count = self.file_count - self.fatal_errors
+        self.file_label.setText(f"Processing file {cur + 1} of {count}: {file}")
         self.file.setMaximum(total)
         self.file.setValue(progress)
-        self.overall.setMaximum(self.file_count * 100)
-        self.overall.setValue(cur * 100 + int(progress * 100 / total))
-        if self.file_count == 0:
+        if count == 0:
             self.overall.setMaximum(100)
             self.overall.setValue(100)
+        else:
+            self.overall.setMaximum(count * 100)
+            self.overall.setValue(cur * 100 + int(progress * 100 / total))
 
     def process_error(self, message, fatal):
         if fatal:
-            self.file_count -= 1
+            self.fatal_errors += 1
         self.errors.append(message)
-        self.has_errors = True
     
     def process_finished(self):
         self.buttonBox.setStandardButtons(QDialogButtonBox.Ok)
-        if self.has_errors:
+        if self.fatal_errors:
             self.file_label.setText("Complete with errors! Please review below.")
         else:
             timer = QTimer(self, singleShot=True)
