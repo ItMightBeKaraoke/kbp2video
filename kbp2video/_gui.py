@@ -489,6 +489,7 @@ class Converter(QRunnable):
         super().__init__()
         self.signals = ConverterSignals()
         self.function = function
+        self.signals.cancelled = False #TODO: Seems to work, but is this a good idea?
         self.args = args
         self.kwargs = kwargs
 
@@ -514,14 +515,14 @@ class UpdateBox(QMessageBox):
             result = {'error': traceback.format_exc(limit=2)}
         signals.data.emit(result)
 
-    def __init__(self, parent, threadpool):
+    def __init__(self, parent):
         super().__init__(QMessageBox.Information, "Check for updates", "Checking for updates...", QMessageBox.StandardButton(QMessageBox.Ok), parent=parent)
         self.runner = Converter(self._lastversion_wrap)
         self.runner.signals.data.connect(self._display_data)
-        threadpool.start(self.runner)
+        QThreadPool.globalInstance().start(self.runner)
     
-    def update_check(parent, threadpool):
-        box = UpdateBox(parent, threadpool)
+    def update_check(parent):
+        box = UpdateBox(parent)
         box.exec()
 
     def _display_data(self, data):
@@ -545,7 +546,6 @@ class Ui_MainWindow(QMainWindow):
 
     def __init__(self, app):
         super().__init__()
-        self.threadpool = QThreadPool()
         self.app = app
         self.setupUi()
 
@@ -580,7 +580,7 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
         self.helpmenu = self.menubar.addMenu("Help")
         self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
-        self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self, self.threadpool))
+        self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self))
         self.setMenuBar(self.menubar)
 
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
@@ -1144,15 +1144,15 @@ class Ui_MainWindow(QMainWindow):
         self.saveSettings()
         converter = Converter(self.conversion_runner, assOnly = True)
         # worker.signals.finished.connect
-        self.threadpool.start(converter)
+        QThreadPool.globalInstance().start(converter)
 
     def runConversion(self):
         self.saveSettings()
         converter = Converter(self.conversion_runner)
         # worker.signals.finished.connect
-        self.threadpool.start(converter)
-        ProgressWindow.showProgressWindow(self.tableWidget.rowCount(), converter.signals, self)
-        # TODO: handle cancel
+        QThreadPool.globalInstance().start(converter)
+        if not ProgressWindow.showProgressWindow(self.tableWidget.rowCount(), converter.signals, self):
+            converter.signals.cancelled = True
 
     def resolved_output_dir(self, kbp):
         if check2bool(self.relative):
@@ -1300,12 +1300,13 @@ class Ui_MainWindow(QMainWindow):
                     kbp_obj = KBPASSWrapper(kbp_obj)
                 except:
                     conversion_errors = True
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info', 
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Failed to process file"),
-                        Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info', 
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Failed to process file"),
+                    #    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    signals.error.emit(f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
             if hasattr(kbp_obj, "kbp_path"):
                 print("Converting the new way")
@@ -1314,12 +1315,13 @@ class Ui_MainWindow(QMainWindow):
                     data = kbp_obj.ass_data(**kbputils_options)
                 except:
                     conversion_errors = True
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info', 
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Failed to process kbp"),
-                        Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info', 
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Failed to process kbp"),
+                    #    Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
+                    signals.error.emit(f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
             else: # kbp_obj is a KBPASSWrapper with a .ass file
                 if any(x in kbp for x in ":;,'=\""):
@@ -1337,12 +1339,13 @@ class Ui_MainWindow(QMainWindow):
                     os.mkdir(outdir)
                 except:
                     conversion_errors = True
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info', 
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Failed to create output folder"),
-                        Q_ARG(str, f"Failed to create missing output folder\n{outdir}\n\nError Output:\n{traceback.format_exc()}"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info', 
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Failed to create output folder"),
+                    #    Q_ARG(str, f"Failed to create missing output folder\n{outdir}\n\nError Output:\n{traceback.format_exc()}"))
+                    signals.error.emit(f"Failed to create output folder\n{outdir}\nassociated with .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
 
             # File was converted and .ass file needs to be written
@@ -1357,6 +1360,7 @@ class Ui_MainWindow(QMainWindow):
                         Q_ARG(str, "Replace file?"),
                         Q_ARG(str, f"Overwrite {assfile}?")))
                     if answer != QMessageBox.Yes:
+                        signals.error.emit(f"Skipped {assfile} per user request (file exists)", True)
                         continue
                 if not f.open(QIODevice.WriteOnly | QIODevice.Text):
                     continue
@@ -1386,12 +1390,13 @@ class Ui_MainWindow(QMainWindow):
                     bginfo = ffmpeg.probe(background)
                 except:
                     conversion_errors = True
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info',
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Unable to process background video"),
-                        Q_ARG(str, f"Unable to determine the resolution of file\n{background}\n{traceback.format_exc()}"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info',
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Unable to process background video"),
+                    #    Q_ARG(str, f"Unable to determine the resolution of file\n{background}\n{traceback.format_exc()}"))
+                    signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
                     continue
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
                 background_video = ffmpeg.input(background).video
@@ -1401,13 +1406,13 @@ class Ui_MainWindow(QMainWindow):
                 song_length_float = float(song_length)
             except:
                 conversion_errors = True
-                QMetaObject.invokeMethod(
-                    self,
-                    'info',
-                    Qt.AutoConnection,
-                    Q_ARG(str, "Unable to process audio"),
-                    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
-                # See continue after this loop that skips iteration of outer loop
+                #QMetaObject.invokeMethod(
+                #    self,
+                #    'info',
+                #    Qt.AutoConnection,
+                #    Q_ARG(str, "Unable to process audio"),
+                #    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
+                signals.error.emit(f"Skipped {kbp}:\nUnable to process audio file\n{audio}\n{traceback.format_exc()}", True)
                 continue
             song_length_us = int(song_length_float * 1e6)
             # TODO figure out time/frame for outro
@@ -1449,22 +1454,23 @@ class Ui_MainWindow(QMainWindow):
             audio_stream = ffmpeg.input(audio).audio
             if background_type == 1 or background_type == 2:
                 if not bg_size:
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info',
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Unsupported Background file"),
-                        Q_ARG(str, f"Unable to determine the resolution of file\n{background}"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info',
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Unsupported Background file"),
+                    #    Q_ARG(str, f"Unable to determine the resolution of file\n{background}"))
+                    signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
                     continue
                 if self.overrideBGResolution.checkState == Qt.Checked and not unsupported_message:
-                    QMetaObject.invokeMethod(
-                        self,
-                        'info',
-                        Qt.AutoConnection,
-                        Q_ARG(str, "Unsupported Option"),
-                        Q_ARG(str, f"Override background resolution option not supported yet!"))
+                    #QMetaObject.invokeMethod(
+                    #    self,
+                    #    'info',
+                    #    Qt.AutoConnection,
+                    #    Q_ARG(str, "Unsupported Option"),
+                    #    Q_ARG(str, f"Override background resolution option not supported yet!"))
+                    signals.error.emit(f"Unsupported option Override Background selected, ignoring", False)
                     unsupported_message = True
-                    continue
 
             bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
             ass_ratio = fractions.Fraction(width, border and 216 or 192)
@@ -1518,7 +1524,7 @@ class Ui_MainWindow(QMainWindow):
                 "c:v": self.vcodecBox.currentText(),
                 "hide_banner": None,
                 "progress": "-",
-                "loglevel": "error"
+                "loglevel": "warning"
             })
             # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
             ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
@@ -1529,18 +1535,31 @@ class Ui_MainWindow(QMainWindow):
             q.start()
             q.waitForStarted(-1)
             while not q.waitForFinished(100):
+                if signals.cancelled:
+                    self.statusbar.showMessage(f"Conversion cancelled during file {row+1} of {self.tableWidget.rowCount()}!")
+                    signals.finished.emit()
+                    return
                 while q.canReadLine():
                     if (ffmpeg_out_line := q.readLine().toStdString()).startswith("out_time_us="):
-                        signals.progress.emit(row, kbp, int(ffmpeg_out_line.split("=")[1]), song_length_us)
+                        try:
+                            out_time = int(ffmpeg_out_line.split("=")[1])
+                        except:
+                            pass # TODO: maybe switch to throbber if ffmpeg isn't outputting progress properly?
+                        else:
+                            signals.progress.emit(row, kbp, out_time, song_length_us)
 
             if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
                 conversion_errors = True
-                QMetaObject.invokeMethod(
-                    self,
-                    'info',
-                    Qt.AutoConnection,
-                    Q_ARG(str, "Failed to convert file"),
-                    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+                #QMetaObject.invokeMethod(
+                #    self,
+                #    'info',
+                #    Qt.AutoConnection,
+                #    Q_ARG(str, "Failed to convert file"),
+                #    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}"))
+                signals.error.emit(f"Failed to process file\n{kbp}\n\nError Output:\n{q.readAllStandardError().toStdString()}", True)
+                print(q.exitStatus())
+                print(q.exitCode())
+
             signals.progress.emit(row, kbp, song_length_us, song_length_us)
 
         
