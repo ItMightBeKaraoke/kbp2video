@@ -775,6 +775,10 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("ktLabel", ClickLabel(buddy=self.ktBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
+        self.gridLayout.addWidget(self.bind("spacingBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("spacingLabel", ClickLabel(buddy=self.spacingBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.gridLayout.addWidget(
             self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
         self.gridLayout.addWidget(
@@ -1077,6 +1081,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/override_offset": check2bool(self.overrideOffset),
             "subtitle/transparent_bg": check2bool(self.transparencyBox),
             "subtitle/allow_kt": check2bool(self.ktBox),
+            "subtitle/style1_spacing": check2bool(self.spacingBox),
             "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/output_resolution": self.resolutionBox.currentText(),
@@ -1117,6 +1122,7 @@ class Ui_MainWindow(QMainWindow):
         self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
         self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
         self.ktBox.setCheckState(bool2check(self.settings.value("subtitle/allow_kt", type=bool, defaultValue=False)))
+        self.spacingBox.setCheckState(bool2check(self.settings.value("subtitle/style1_spacing", type=bool, defaultValue=False)))
         self.overflowBox.setCurrentText(self.settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
@@ -1262,6 +1268,8 @@ class Ui_MainWindow(QMainWindow):
             kbputils_options['transparency'] = False
         if self.ktBox.checkState() == Qt.Checked:
             kbputils_options['allow_kt'] = True
+        if self.spacingBox.checkState() == Qt.Checked:
+            kbputils_options['experimental_spacing'] = True
         kbputils_options['overflow'] = kbputils.AssOverflow[self.overflowBox.currentText().replace(" ", "_").upper()]
         conversion_errors = False
         ffmpeg_processes = []
@@ -1612,6 +1620,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Use \\&kt to allow overlapping wipes", None))
         self.ktLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When wipes overlap on the same line, handle it by adding \\kt tags\nto show the wipes at their chosen times. Note that\n1) This is different from KBS that just tries to wipe it fast after the previous wipe\n2) It's not supported by some ASS tools, including Aegisub.", None))
+        self.spacingLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Experimental style 1 spacing", None))
+        self.spacingLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "Attempt to set the line spacing based on style 1 like KBS does.\nThis is currently working with a set list of fonts.\nIf your style 1 font is not in the list, conversion will fail.", None))
         self.overflowLabel.setText(QCoreApplication.translate(
             "MainWindow", "Word Wrappin&g", None))
         self.overflowBox.setToolTip(QCoreApplication.translate(
