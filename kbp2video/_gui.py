@@ -238,6 +238,15 @@ class DropLabel(QLabel):
             return 'kbp'
         elif path.casefold().endswith('.ass'):
             return 'ass'
+        elif path.casefold().endswith('.txt'):
+            outfile = os.path.splitext(path)[0] + '.kbp'
+            if not os.path.exists(outfile):
+                try:
+                    kbputils.DoblonTxtConverter(kbputils.doblontxt.DoblonTxt(path), **Ui_MainWindow.doblonsettings).kbpFile().writeFile(outfile)
+                except:
+                    print(traceback.format_exc())
+                    return None
+            return ('kbp', outfile)
         elif (mime := self.mimedb.mimeTypeForFile(path)).name().startswith('audio/'):
             return 'audio'
         elif mime.name().startswith('image/') or mime.name().startswith('video/'):
@@ -285,7 +294,12 @@ class DropLabel(QLabel):
                 # else Leave dir_expand to prompt next time
             if not isdir:
                 if filetype := self.identifyFile(path):
-                    identified.add(filetype, path)
+                    # When identifyFile returns a tuple, it is overriding the path
+                    if isinstance(filetype, tuple):
+                        identified.add(*filetype)
+                    else:
+                        identified.add(filetype, path)
+
             elif dir_expand:
                 self.generateFileList(
                     glob.iglob(
@@ -359,7 +373,7 @@ class DropLabel(QLabel):
                 # Process audio/background options from KBP file
                 current = table.row(item)
                 if hasattr((k := item.data(Qt.UserRole)), "kbp_obj"):
-                    if not table.item(current, TrackTableColumn.Audio.value).text() and (audio := k.kbp_obj.trackinfo["audio"]):
+                    if not table.item(current, TrackTableColumn.Audio.value).text() and (audio := k.kbp_obj.trackinfo["Audio"]):
                         # Audio is either absolute path or relative to kbp
                         audio_path = os.path.join(os.path.dirname(str(k)), audio)
                         audio_item = QTableWidgetItem(os.path.basename(audio_path))
@@ -1095,6 +1109,7 @@ class Ui_MainWindow(QMainWindow):
             "kbp2video/relative_path": check2bool(self.relative),
             "kbp2video/output_dir": self.outputDir.text(),
             "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
+            **{"doblontxt/" + x: Ui_MainWindow.doblonsettings[x] for x in Ui_MainWindow.doblonsettings},
         }
         for setting, value in to_save.items():
             self.settings.setValue(setting, value)
@@ -1144,6 +1159,17 @@ class Ui_MainWindow(QMainWindow):
         self.relative.setCheckState(bool2check(self.settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
         self.outputDir.setText(self.settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
         self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        Ui_MainWindow.doblonsettings = {
+            "max_lines_per_page": 6,
+            "min_gap_for_new_page": 1000,
+            "display_before_wipe": 1000,
+            "remove_after_wipe": 500,
+            "template_file": '',
+            "comments": 'Created with kbputils\nConverted from Doblon .txt file'
+        }
+        for x in Ui_MainWindow.doblonsettings:
+            val = Ui_MainWindow.doblonsettings[x]
+            Ui_MainWindow.doblonsettings[x] = self.settings.value("doblontxt/" + x, type=type(val), defaultValue=val)
         self.saveSettings()  # Save to disk any new defaults that were used
 
     def runAssConversion(self):
