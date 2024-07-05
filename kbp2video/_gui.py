@@ -18,6 +18,7 @@ from PySide6.QtGui import *  # type: ignore
 from PySide6.QtWidgets import *  # type: ignore
 from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
+from .advanced_options import AdvancedOptions
 from .progress_window import ProgressWindow
 import ffmpeg
 from ._ffmpegcolor import ffmpeg_color
@@ -242,7 +243,15 @@ class DropLabel(QLabel):
             outfile = os.path.splitext(path)[0] + '.kbp'
             if not os.path.exists(outfile):
                 try:
-                    kbputils.DoblonTxtConverter(kbputils.doblontxt.DoblonTxt(path), **Ui_MainWindow.doblonsettings).kbpFile().writeFile(outfile)
+                    kbputils.DoblonTxtConverter(kbputils.DoblonTxt(path), **Ui_MainWindow.lyricsettings).kbpFile().writeFile(outfile)
+                except:
+                    print(traceback.format_exc())
+                    return None
+        elif path.casefold().endswith('.lrc'):
+            outfile = os.path.splitext(path)[0] + '.kbp'
+            if not os.path.exists(outfile):
+                try:
+                    kbputils.LRCConverter(kbputils.LRC(path), **Ui_MainWindow.lyricsettings).kbpFile().writeFile(outfile)
                 except:
                     print(traceback.format_exc())
                     return None
@@ -592,6 +601,7 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Add empty row", self.add_row_button)
         self.editmenu.addAction("&Open/Edit Selected Files", QKeySequence.Open, self.remove_files_button)
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
+        self.editmenu.addAction("&Lyrics Import Options", self.advanced_options)
         self.helpmenu = self.menubar.addMenu("Help")
         self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
         self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self))
@@ -1032,6 +1042,9 @@ class Ui_MainWindow(QMainWindow):
         if self.tableWidget.selectedIndexes():
             AdvancedEditor.showAdvancedEditor(self.tableWidget)
 
+    def advanced_options(self):
+        AdvancedOptions.showAdvancedOptions(self.lyricsettings)
+
     def edit_button(self):
         rows = set(x.row() for x in self.tableWidget.selectedIndexes())
         if len(rows) == 1 or QMessageBox.question(self, f"Open {len(rows)} files?", f"Are you sure you want to open {len(rows)} files at the same time?") == QMessageBox.Yes:
@@ -1109,7 +1122,7 @@ class Ui_MainWindow(QMainWindow):
             "kbp2video/relative_path": check2bool(self.relative),
             "kbp2video/output_dir": self.outputDir.text(),
             "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
-            **{"doblontxt/" + x: Ui_MainWindow.doblonsettings[x] for x in Ui_MainWindow.doblonsettings},
+            **{"lyricimport/" + x: Ui_MainWindow.lyricsettings[x] for x in Ui_MainWindow.lyricsettings},
         }
         for setting, value in to_save.items():
             self.settings.setValue(setting, value)
@@ -1159,17 +1172,17 @@ class Ui_MainWindow(QMainWindow):
         self.relative.setCheckState(bool2check(self.settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
         self.outputDir.setText(self.settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
         self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
-        Ui_MainWindow.doblonsettings = {
+        Ui_MainWindow.lyricsettings = {
             "max_lines_per_page": 6,
             "min_gap_for_new_page": 1000,
             "display_before_wipe": 1000,
             "remove_after_wipe": 500,
             "template_file": '',
-            "comments": 'Created with kbputils\nConverted from Doblon .txt file'
+            "comments": 'Created with kbp2video\nhttps://github.com/itmightbekaraoke/kbp2video/'
         }
-        for x in Ui_MainWindow.doblonsettings:
-            val = Ui_MainWindow.doblonsettings[x]
-            Ui_MainWindow.doblonsettings[x] = self.settings.value("doblontxt/" + x, type=type(val), defaultValue=val)
+        for x in Ui_MainWindow.lyricsettings:
+            val = Ui_MainWindow.lyricsettings[x]
+            Ui_MainWindow.lyricsettings[x] = self.settings.value("lyricimport/" + x, type=type(val), defaultValue=val)
         self.saveSettings()  # Save to disk any new defaults that were used
 
     def runAssConversion(self):

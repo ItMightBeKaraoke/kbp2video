@@ -11,7 +11,7 @@ script=kbp2video.pyw
 console=true
 
 [Python]
-version=3.11.9
+version=3.12.4
 include_msvcrt=false
 bitness=64
 
