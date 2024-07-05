@@ -38,7 +38,7 @@ with open('installer.cfg', 'w') as f:
 
 # Pull down an ffmpeg zip and extract it if not already present
 if not os.path.isfile('ffmpeg.zip') and not os.path.isdir('ffmpeg'):
-    with urllib.request.urlopen('https://github.com/GyanD/codexffmpeg/releases/download/7.0/ffmpeg-7.0-full_build-shared.zip') as f:
+    with urllib.request.urlopen('https://github.com/GyanD/codexffmpeg/releases/download/7.0.1/ffmpeg-7.0.1-full_build-shared.zip') as f:
         try:
             with open('ffmpeg.zip', 'wb') as z:
                 # TODO: Buffer? It's ~60M
