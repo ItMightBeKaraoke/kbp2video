@@ -5,6 +5,8 @@ kbp2video is a GUI for converting .kbp files from Karaoke Builder Studio into vi
 
 This project is still in beta, though several people are already using it daily to generate their karaoke videos. If you want to try it, I recommend joining the [diveBar Discord](https://discord.gg/diveBar) if you are not there already.
 
+**For a lot more information on functionality and usage, see the [User Guide](https://itmightbekaraoke.com/kbp2video/docs/).**
+
 How to run kbp2video
 --------------------
 
