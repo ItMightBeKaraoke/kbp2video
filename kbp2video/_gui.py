@@ -39,6 +39,7 @@ class TrackTableColumn(enum.Enum):
 # TODO: Possibly pull PlayRes? from .ass to letterbox
 class KBPASSWrapper:
     def __init__(self, path):
+        # TODO: casefold
         if path.endswith(".ass"):
             self.ass_path = path
             # raise correct exception we would get later from opening
@@ -1204,6 +1205,7 @@ class Ui_MainWindow(QMainWindow):
 
             # If relative is set, assume .ass dir is the output dir because we
             # no longer know the project file
+            # TODO: casefold
             if kbp.endswith(".ass"):
                 return os.path.dirname(kbp)
             else:
@@ -1302,7 +1304,7 @@ class Ui_MainWindow(QMainWindow):
         kbputils_options['fade_in'] = self.fadeIn.value()
         kbputils_options['fade_out'] = self.fadeOut.value()
         if self.overrideOffset.checkState() == Qt.Checked:
-            kbputils_options['offset'] = self.offset.value()
+            kbputils_options['offset'] = int(self.offset.value()*1000)
         if self.transparencyBox.checkState() != Qt.Checked:
             kbputils_options['transparency'] = False
         if self.ktBox.checkState() == Qt.Checked:
@@ -1397,6 +1399,7 @@ class Ui_MainWindow(QMainWindow):
                     continue
 
             # File was converted and .ass file needs to be written
+            # TODO: casefold
             if kbp.endswith(".kbp"):
                 f = QFile(assfile)
                 if f.exists():
@@ -1462,7 +1465,7 @@ class Ui_MainWindow(QMainWindow):
                 #    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
                 signals.error.emit(f"Skipped {kbp}:\nUnable to process audio file\n{audio}\n{traceback.format_exc()}", True)
                 continue
-            song_length_us = int(song_length_float * 1e6)
+            song_length_ms = int(song_length_float * 1e3)
             # TODO figure out time/frame for outro
             for x in ("intro", "outro"):
                 if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
@@ -1580,9 +1583,9 @@ class Ui_MainWindow(QMainWindow):
             print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
             q.setReadChannel(QProcess.StandardOutput)
-            ffmpeg_processes.append((kbp, song_length_us, q))
+            ffmpeg_processes.append((kbp, song_length_ms, q))
 
-        for row, (kbp, song_length_us, q) in enumerate(ffmpeg_processes):
+        for row, (kbp, song_length_ms, q) in enumerate(ffmpeg_processes):
             q.start()
             q.waitForStarted(-1)
             while not q.waitForFinished(100):
@@ -1593,11 +1596,11 @@ class Ui_MainWindow(QMainWindow):
                 while q.canReadLine():
                     if (ffmpeg_out_line := q.readLine().toStdString()).startswith("out_time_us="):
                         try:
-                            out_time = int(ffmpeg_out_line.split("=")[1])
+                            out_time = int(ffmpeg_out_line.split("=")[1]) / 1000
                         except:
                             pass # TODO: maybe switch to throbber if ffmpeg isn't outputting progress properly?
                         else:
-                            signals.progress.emit(row, len(ffmpeg_processes), kbp, out_time, song_length_us)
+                            signals.progress.emit(row, len(ffmpeg_processes), kbp, out_time, song_length_ms)
 
             if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
                 conversion_errors = True
@@ -1611,7 +1614,7 @@ class Ui_MainWindow(QMainWindow):
                 print(q.exitStatus())
                 print(q.exitCode())
 
-            signals.progress.emit(row, len(ffmpeg_processes), kbp, song_length_us, song_length_us)
+            signals.progress.emit(row, len(ffmpeg_processes), kbp, song_length_ms, song_length_ms)
         
         self.statusbar.showMessage(f"Conversion completed{' (with errors)' if conversion_errors else ''}!")
         signals.finished.emit()
