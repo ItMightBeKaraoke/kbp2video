@@ -39,8 +39,7 @@ class TrackTableColumn(enum.Enum):
 # TODO: Possibly pull PlayRes? from .ass to letterbox
 class KBPASSWrapper:
     def __init__(self, path):
-        # TODO: casefold
-        if path.endswith(".ass"):
+        if path.casefold().endswith(".ass"):
             self.ass_path = path
             # raise correct exception we would get later from opening
             with open(path, "r") as _:
@@ -540,7 +539,7 @@ class UpdateBox(QMessageBox):
         signals.data.emit(result)
 
     def __init__(self, parent):
-        super().__init__(QMessageBox.Information, "Check for updates", "Checking for updates...", QMessageBox.StandardButton(QMessageBox.Ok), parent=parent)
+        super().__init__(QMessageBox.Information, "Check for updates", "Checking for updates…", QMessageBox.StandardButton(QMessageBox.Ok), parent=parent)
         self.runner = Converter(self._lastversion_wrap)
         self.runner.signals.data.connect(self._display_data)
         QThreadPool.globalInstance().start(self.runner)
@@ -592,10 +591,10 @@ class Ui_MainWindow(QMainWindow):
         self.menubar = QMenuBar()
         self.menubar.setObjectName("menubar")
         #self.menubar.setGeometry(QRect(0, 0, 886, 25))
-        self.filemenu = self.menubar.addMenu("File")
+        self.filemenu = self.menubar.addMenu("&File")
         self.filemenu.addAction("&Add/Import Files", Qt.CTRL | Qt.Key_I, self.add_files_button)
         self.filemenu.addAction("&Quit", QKeySequence.Quit, self.app.quit)
-        self.editmenu = self.menubar.addMenu("Edit")
+        self.editmenu = self.menubar.addMenu("&Edit")
         # TODO: Ctrl-A already works, would this be helpful
         #self.editmenu.addAction("&Select All", self.select_all)
         self.editmenu.addAction("&Remove Selected", QKeySequence.Delete, self.remove_files_button)
@@ -603,9 +602,9 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Open/Edit Selected Files", QKeySequence.Open, self.remove_files_button)
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
         self.editmenu.addAction("&Lyrics Import Options", self.advanced_options)
-        self.helpmenu = self.menubar.addMenu("Help")
+        self.helpmenu = self.menubar.addMenu("&Help")
         self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
-        self.helpmenu.addAction("&Check for Updates...", lambda: UpdateBox.update_check(self))
+        self.helpmenu.addAction("&Check for Updates…", lambda: UpdateBox.update_check(self))
         self.setMenuBar(self.menubar)
 
         self.setStatusBar(self.bind("statusbar", QStatusBar(self)))
@@ -651,7 +650,8 @@ class Ui_MainWindow(QMainWindow):
                 "verticalLayout",
                 QVBoxLayout(
                     sizeConstraint=QLayout.SetDefaultConstraint)),
-            stretch=10)
+            stretch=10
+        )
 
         self.verticalLayout.addWidget(
             self.bind("stackedWidget", QStackedWidget(self.centralWidget)))
@@ -706,8 +706,18 @@ class Ui_MainWindow(QMainWindow):
 
         ##################### Right pane #####################
 
-        self.horizontalLayout.addLayout(
-            self.bind("gridLayout", QGridLayout()), stretch=0)
+        self.bind("rightPane", QWidget(
+            layout=self.bind("gridLayout", QGridLayout())
+        ))
+        self.horizontalLayout.addWidget(
+            self.bind("rightPaneScroll", QScrollArea(
+                widget=self.rightPane,
+                widgetResizable=True,
+                sizePolicy=QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred),
+                horizontalScrollBarPolicy=Qt.ScrollBarAlwaysOff
+            )),
+            stretch=0
+        )
 
         gridRow = 0
         self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
@@ -1205,8 +1215,7 @@ class Ui_MainWindow(QMainWindow):
 
             # If relative is set, assume .ass dir is the output dir because we
             # no longer know the project file
-            # TODO: casefold
-            if kbp.endswith(".ass"):
+            if kbp.casefold().endswith(".ass"):
                 return os.path.dirname(kbp)
             else:
                 # TODO: check if self.outputDir starts with a slash? Otherwise it behaves like an absolute path
@@ -1399,8 +1408,7 @@ class Ui_MainWindow(QMainWindow):
                     continue
 
             # File was converted and .ass file needs to be written
-            # TODO: casefold
-            if kbp.endswith(".kbp"):
+            if kbp.casefold().endswith(".kbp"):
                 f = QFile(assfile)
                 if f.exists():
                     answer = QMessageBox.StandardButton(QMetaObject.invokeMethod(
@@ -1623,37 +1631,37 @@ class Ui_MainWindow(QMainWindow):
         self.setWindowTitle(QCoreApplication.translate(
             "MainWindow", "KBP to Video", None))
         self.addButton.setText(QCoreApplication.translate(
-            "MainWindow", "&Add Files...", None))
+            "MainWindow", "Add Files…", None))
         self.editButton.setText(QCoreApplication.translate(
-            "MainWindow", "Edit files...", None))
+            "MainWindow", "Edit Files…", None))
         self.advancedButton.setText(QCoreApplication.translate(
-            "MainWindow", "Set Intro&/Outro...", None))
+            "MainWindow", "Intro/Outro…", None))
         self.colorChooseButton.setText(QCoreApplication.translate(
-            "MainWindow", "C&hoose...", None))
+            "MainWindow", "Choo&se…", None))
         self.colorChooseButton.setToolTip(QCoreApplication.translate(
             "MainWindow", "Choose a background color with a color picker", None))
         self.colorApplyButton.setText(QCoreApplication.translate(
-            "MainWindow", "< A&pply BG", None))
+            "MainWindow", "&< Apply BG", None))
         self.colorApplyButton.setToolTip(
             QCoreApplication.translate(
                 "MainWindow",
                 "Set the background color on everything in the left pane without a background",
                 None))
         self.removeButton.setText(QCoreApplication.translate(
-            "MainWindow", "&Remove Selected", None))
+            "MainWindow", "Remove Row(s)", None))
         self.addRowButton.setText(QCoreApplication.translate(
-            "MainWindow", "Add &empty row", None))
+            "MainWindow", "New row", None))
         self.dragDropDescription.setText(
             QCoreApplication.translate(
                 "MainWindow",
-                "Drag/Drop files/folders above or use buttons below",
+                "Drop project and media files/folders above or use buttons below",
                 None))
         self.assDivider.setText(QCoreApplication.translate(
             "MainWindow", "Subtitle options", None))
         self.fades.setText(QCoreApplication.translate(
-            "MainWindow", "&Fade In/Out", None))
+            "MainWindow", "Fade &In/Out", None))
         self.aspectLabel.setText(QCoreApplication.translate(
-            "MainWindow", "A&spect Ratio", None))
+            "MainWindow", "&Aspect Ratio", None))
         self.transparencyLabel.setText(QCoreApplication.translate(
             "MainWindow", "&Draw BG color transparent", None))
         self.transparencyLabel.setToolTip(QCoreApplication.translate(
@@ -1663,7 +1671,7 @@ class Ui_MainWindow(QMainWindow):
         self.ktLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When wipes overlap on the same line, handle it by adding \\kt tags\nto show the wipes at their chosen times. Note that\n1) This is different from KBS that just tries to wipe it fast after the previous wipe\n2) It's not supported by some ASS tools, including Aegisub.", None))
         self.spacingLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Experimental style 1 spacing", None))
+            "MainWindow", "Experimental style &1 spacing", None))
         self.spacingLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "Attempt to set the line spacing based on style 1 like KBS does.\nThis is currently working with a set list of fonts.\nIf your style 1 font is not in the list, conversion will fail.", None))
         self.overflowLabel.setText(QCoreApplication.translate(
@@ -1671,7 +1679,7 @@ class Ui_MainWindow(QMainWindow):
         self.overflowBox.setToolTip(QCoreApplication.translate(
             "MainWindow", "When a line is too wide for the screen, use this strategy to wrap words\n  no wrap: Allow text to go off screen\n  even split: Wrap words in a way that makes the following line(s) about the same size\n  top split: Keep the first line long, only wrap at the word that causes it to go offscreen\n  bottom split: Make the bottom line long when wrapping", None))
         self.overrideOffsetLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Overr&ide Timestamp Offset", None))
+            "MainWindow", "Override Timestamp Offset (&Z)", None))
         self.overrideOffsetLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "Set an offset to be applied to every timestamp in the KBP file when converting\nto .ass. If not overridden, the setting from within KBS is used if it can be located.", None))
         self.offsetLabel.setText(QCoreApplication.translate(
@@ -1697,7 +1705,7 @@ class Ui_MainWindow(QMainWindow):
         self.overrideBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
         self.losslessLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Lossless video", None))
+            "MainWindow", "&Lossless video", None))
         self.lossless.setToolTip(QCoreApplication.translate(
             "MainWindow", "Use lossless quality settings on video (may create very large files).\nFor lossless audio and video, use an mkv container with this checked and flac codec for audio.", None))
         self.qualityLabel.setText(QCoreApplication.translate(
@@ -1711,15 +1719,15 @@ class Ui_MainWindow(QMainWindow):
         self.generalDivider.setText(QCoreApplication.translate(
             "MainWindow", "kbp2video options", None))
         self.outputDirLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Output Fo&lder", None))
+            "MainWindow", "Output Folde&r", None))
         self.relativeLabel.setText(QCoreApplication.translate(
             "MainWindow", "Use relative &path from project file", None))
         self.relativeLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "Interpret Output Folder as a relative path from your .kbp file.\nE.g. leave it blank to have it in the same folder as your .kbp.", None))
         self.outputDirButton.setText(QCoreApplication.translate(
-            "MainWindow", "Bro&wse...", None))
+            "MainWindow", "Bro&wse…", None))
         self.resetButton.setText(QCoreApplication.translate(
-            "MainWindow", "Reset Settings&...", None))
+            "MainWindow", "Reset Settings…", None))
         self.convertButton.setText(QCoreApplication.translate(
             "MainWindow", "&Convert to Video", None))
         self.convertAssButton.setText(QCoreApplication.translate(
