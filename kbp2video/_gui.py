@@ -94,8 +94,6 @@ class TrackTable(QTableWidget):
         self.supportedDropActions()
         self.itemSelectionChanged.connect(self.handle_selection_change)
 
-    # TODO: try getting delete button on the keyboard to work
-
     # Auto-vivify missing items
     def item(self, row, column):
         if (i := super().item(row, column)) is None:
@@ -593,6 +591,8 @@ class Ui_MainWindow(QMainWindow):
         #self.menubar.setGeometry(QRect(0, 0, 886, 25))
         self.filemenu = self.menubar.addMenu("&File")
         self.filemenu.addAction("&Add/Import Files", Qt.CTRL | Qt.Key_I, self.add_files_button)
+        self.filemenu.addAction("&Load settings from file…", Qt.CTRL | Qt.Key_L, self.prompt_import_settings_file)
+        self.filemenu.addAction("&Export settings…", Qt.CTRL | Qt.Key_E, self.prompt_export_settings_file)
         self.filemenu.addAction("&Quit", QKeySequence.Quit, self.app.quit)
         self.editmenu = self.menubar.addMenu("&Edit")
         # TODO: Ctrl-A already works, would this be helpful
@@ -986,6 +986,16 @@ class Ui_MainWindow(QMainWindow):
         QMetaObject.connectSlotsByName(self)
     # setupUi
 
+    def prompt_import_settings_file(self):
+        file, _ = QFileDialog.getOpenFileName(self, "Import Settings File", filter="Settings (*.ini)")
+        if file:
+            self.loadSettings(file)
+
+    def prompt_export_settings_file(self):
+        dialog = QFileDialog(self, "Export Settings File", filter="Settings (*.ini)", acceptMode=QFileDialog.AcceptSave, defaultSuffix="ini")
+        if dialog.exec():
+            self.saveSettings(dialog.selectedFiles()[0])
+
     def add_files_button(self):
         files, result = QFileDialog.getOpenFileNames(
             self,
@@ -1110,7 +1120,15 @@ class Ui_MainWindow(QMainWindow):
             else:
                 self.outputDir.setText(outputdir)
 
-    def saveSettings(self):
+    def saveSettings(self, file = None):
+        if file:
+            if os.path.exists(file):
+                # In case it's an invalid settings file or has additional settings
+                os.remove(file)
+            settings = QSettings(file, QSettings.IniFormat)
+        else:
+            settings = self.settings
+
         to_save = {
             "subtitle/aspect_ratio": self.aspectRatioBox.currentText(),
             "subtitle/fade_in": self.fadeIn.value(),
@@ -1136,53 +1154,63 @@ class Ui_MainWindow(QMainWindow):
             **{"lyricimport/" + x: Ui_MainWindow.lyricsettings[x] for x in Ui_MainWindow.lyricsettings},
         }
         for setting, value in to_save.items():
-            self.settings.setValue(setting, value)
-        self.settings.sync()
+            settings.setValue(setting, value)
+        settings.sync()
 
-    def loadSettings(self):
+    def loadSettings(self, file = None):
+        
+        if file:
+            try:
+                settings = QSettings(file, QSettings.IniFormat)
+            except:
+                QMessageBox.warning(self, "Unable to load settings file", f"Unable to load {file}\n{traceback.format_exc()}")
+                return
+        else:
+            settings = self.settings
+                
         # legacy options
-        self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
-        self.settings.remove("subtitle/aspect_ratio_index")
-        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("overrideBGResolution", type=bool, defaultValue=False)))
-        self.settings.remove("overrideBGResolution")
-        self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
-        self.settings.remove("video/output_resolution_index")
+        self.aspectRatioBox.setCurrentIndex(settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+        settings.remove("subtitle/aspect_ratio_index")
+        self.overrideBGResolution.setCheckState(bool2check(settings.value("overrideBGResolution", type=bool, defaultValue=False)))
+        settings.remove("overrideBGResolution")
+        self.resolutionBox.setCurrentIndex(settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        settings.remove("video/output_resolution_index")
 
         # Restore existing or custom option
-        aspect_text = self.settings.value("subtitle/aspect_ratio", type=str, defaultValue="<NONEXISTENT>")
+        aspect_text = settings.value("subtitle/aspect_ratio", type=str, defaultValue="<NONEXISTENT>")
         if (index := self.aspectRatioBox.findText(aspect_text)) != -1:
             self.aspectRatioBox.setCurrentIndex(index)
         elif aspect_text != "<NONEXISTENT>":
             self.aspectRatioBox.setCurrentText(aspect_text)
 
-        self.fadeIn.setValue(self.settings.value("subtitle/fade_in", type=int, defaultValue=50))
-        self.fadeOut.setValue(self.settings.value("subtitle/fade_out", type=int, defaultValue=50))
-        self.offset.setValue(self.settings.value("subtitle/offset", type=float, defaultValue=0.0))
-        self.offset_check_box(setState=bool2check(self.settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
-        self.transparencyBox.setCheckState(bool2check(self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
-        self.ktBox.setCheckState(bool2check(self.settings.value("subtitle/allow_kt", type=bool, defaultValue=False)))
-        self.spacingBox.setCheckState(bool2check(self.settings.value("subtitle/style1_spacing", type=bool, defaultValue=False)))
-        self.overflowBox.setCurrentText(self.settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
-        self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+        self.fadeIn.setValue(settings.value("subtitle/fade_in", type=int, defaultValue=50))
+        self.fadeOut.setValue(settings.value("subtitle/fade_out", type=int, defaultValue=50))
+        self.offset.setValue(settings.value("subtitle/offset", type=float, defaultValue=0.0))
+        self.offset_check_box(setState=bool2check(settings.value("subtitle/override_offset", type=bool, defaultValue=False)))
+        self.transparencyBox.setCheckState(bool2check(settings.value("subtitle/transparent_bg", type=bool, defaultValue=True)))
+        self.ktBox.setCheckState(bool2check(settings.value("subtitle/allow_kt", type=bool, defaultValue=False)))
+        self.spacingBox.setCheckState(bool2check(settings.value("subtitle/style1_spacing", type=bool, defaultValue=False)))
+        self.overflowBox.setCurrentText(settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
+        self.updateColor(setColor=settings.value("video/background_color", type=str, defaultValue="#000000"))
 
         # Restore existing or custom option
-        resolution_text = self.settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
+        resolution_text = settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
         if (index := self.resolutionBox.findText(resolution_text)) != -1:
             self.resolutionBox.setCurrentIndex(index)
         elif resolution_text != "<NONEXISTENT>":
             self.resolutionBox.setCurrentText(resolution_text)
 
-        self.overrideBGResolution.setCheckState(bool2check(self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
-        self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        self.overrideBGResolution.setCheckState(bool2check(settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
+        self.containerBox.setCurrentIndex(settings.value("video/container_format_index", type=int, defaultValue=0))
         self.updateCodecs()
-        self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
-        self.lossless.setCheckState(bool2check(self.settings.value("video/lossless", type=bool, defaultValue=False)))
-        self.quality.setValue(self.settings.value("video/quality", type=int, defaultValue=23))
-        self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
-        self.abitrateBox.setText(self.settings.value("video/audio_bitrate", type=str, defaultValue=""))
-        self.relative.setCheckState(bool2check(self.settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
-        self.outputDir.setText(self.settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
-        self.skipBackgrounds.setCheckState(bool2check(self.settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        self.vcodecBox.setCurrentIndex(settings.value("video/video_codec_index", type=int, defaultValue=0))
+        self.lossless.setCheckState(bool2check(settings.value("video/lossless", type=bool, defaultValue=False)))
+        self.quality.setValue(settings.value("video/quality", type=int, defaultValue=23))
+        self.acodecBox.setCurrentIndex(settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        self.abitrateBox.setText(settings.value("video/audio_bitrate", type=str, defaultValue=""))
+        self.relative.setCheckState(bool2check(settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
+        self.outputDir.setText(settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
+        self.skipBackgrounds.setCheckState(bool2check(settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
         Ui_MainWindow.lyricsettings = {
             "max_lines_per_page": 6,
             "min_gap_for_new_page": 1000,
@@ -1193,8 +1221,9 @@ class Ui_MainWindow(QMainWindow):
         }
         for x in Ui_MainWindow.lyricsettings:
             val = Ui_MainWindow.lyricsettings[x]
-            Ui_MainWindow.lyricsettings[x] = self.settings.value("lyricimport/" + x, type=type(val), defaultValue=val)
-        self.saveSettings()  # Save to disk any new defaults that were used
+            Ui_MainWindow.lyricsettings[x] = settings.value("lyricimport/" + x, type=type(val), defaultValue=val)
+        if not file:
+            self.saveSettings()  # Save to disk any new defaults that were used
 
     def runAssConversion(self):
         self.saveSettings()
