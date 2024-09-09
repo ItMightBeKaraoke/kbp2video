@@ -2,7 +2,7 @@
 name = "kbp2video"
 dynamic = ["version"]
 dependencies = [
-    "PySide6-Essentials < 6.7",
+    "PySide6-Essentials",
     "ffmpeg-python",
     "kbputils >= 0.0.14",
     "lastversion"
