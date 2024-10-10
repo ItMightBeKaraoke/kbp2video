@@ -1,6 +1,5 @@
-from PySide6.QtCore import *  # type: ignore
-from PySide6.QtGui import *  # type: ignore
-from PySide6.QtWidgets import *  # type: ignore
+from PySide6.QtCore import Qt, QCoreApplication, QTime
+from PySide6.QtWidgets import QLabel, QDialogButtonBox, QDialog, QSizePolicy, QCheckBox, QVBoxLayout, QPushButton, QWidget, QMessageBox, QFileDialog, QLineEdit, QTabWidget, QTimeEdit, QGridLayout
 from .utils import ClickLabel, mimedb, check2bool, bool2check
 import ffmpeg
 

@@ -1,6 +1,6 @@
-from PySide6.QtCore import *  # type: ignore
-from PySide6.QtGui import *  # type: ignore
-from PySide6.QtWidgets import *  # type: ignore
+from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import QDialogButtonBox, QVBoxLayout, QTextEdit, QLineEdit, QTabWidget, QDialog, QGridLayout
 from .utils import ClickLabel, mimedb, check2bool, bool2check
 
 class AdvancedOptions(QDialog):

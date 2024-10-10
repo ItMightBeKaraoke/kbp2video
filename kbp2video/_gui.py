@@ -13,9 +13,9 @@ import string
 import re
 import time #sleep
 import fractions
-from PySide6.QtCore import *  # type: ignore
-from PySide6.QtGui import *  # type: ignore
-from PySide6.QtWidgets import *  # type: ignore
+from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot
+from PySide6.QtGui import QColor, QImage, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator
+from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QTableWidget, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QTableView, QAbstractItemView, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox
 from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
 from .advanced_options import AdvancedOptions

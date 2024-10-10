@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import *
-from PySide6.QtCore import *
+from PySide6.QtWidgets import QCheckBox, QLabel
+from PySide6.QtCore import QMimeDatabase, Qt
 
 # Minor enhancement to QLabel - if it has a buddy configured, that will not
 # only allow a keyboard mnemonic to be associated, but will also focus the buddy

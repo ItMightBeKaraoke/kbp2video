@@ -1,6 +1,5 @@
-from PySide6.QtCore import *  # type: ignore
-from PySide6.QtGui import *  # type: ignore
-from PySide6.QtWidgets import *  # type: ignore
+from PySide6.QtCore import QObject, Qt, QCoreApplication, QTimer
+from PySide6.QtWidgets import QVBoxLayout, QLabel, QTextEdit, QDialogButtonBox, QDialog, QProgressBar
 from .utils import ClickLabel, mimedb, check2bool, bool2check
 
 #class ProgressSignals(QObject):
