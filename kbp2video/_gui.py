@@ -16,6 +16,7 @@ import fractions
 from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot
 from PySide6.QtGui import QColor, QImage, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QTableWidget, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QTableView, QAbstractItemView, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox
+import PySide6
 from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
 from .advanced_options import AdvancedOptions
@@ -603,7 +604,7 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
         self.editmenu.addAction("&Lyrics Import Options", self.advanced_options)
         self.helpmenu = self.menubar.addMenu("&Help")
-        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nffmpeg version: {ffmpeg_version}"))
+        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nPySide6 version: {PySide6.__version__}\nffmpeg version: {ffmpeg_version}"))
         self.helpmenu.addAction("&Check for Updates…", lambda: UpdateBox.update_check(self))
         self.setMenuBar(self.menubar)
 
@@ -1001,7 +1002,7 @@ class Ui_MainWindow(QMainWindow):
                 ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
             except:
                 ffmpeg_version = "MISSING/UNKNOWN"
-        self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {ffmpeg_version})")
+        self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {ffmpeg_version}, PySide6 {PySide6.__version__})")
 
         QMetaObject.connectSlotsByName(self)
     # setupUi
