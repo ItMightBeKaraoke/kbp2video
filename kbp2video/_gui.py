@@ -612,16 +612,7 @@ class Ui_MainWindow(QMainWindow):
         # No point in updating the status bar with empty messages
         self.installEventFilter(EventFilter(self, lambda obj, event: True if event.type() == QEvent.StatusTip and not event.tip() else False))
 
-        try:
-            q = QProcess(program="ffmpeg", arguments=["-version"])
-            q.start()
-            q.waitForFinished(1000)
-            q.setReadChannel(QProcess.StandardOutput)
-            version_line = q.readLine().toStdString().split()
-            ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
-        except:
-            ffmpeg_version = "MISSING/UNKNOWN"
-        self.statusbar.showMessage(f"kbp2video {__version__} (kbputils {kbputils.__version__}, ffmpeg {ffmpeg_version})")
+        ffmpeg_version=""
 
         QCoreApplication.setOrganizationName("ItMightBeKaraoke")
         QCoreApplication.setApplicationName("kbp2video")
@@ -863,11 +854,10 @@ class Ui_MainWindow(QMainWindow):
         #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
         self.resolutionLabel.setBuddy(self.resolutionBox)
 
-        gridRow += 1
-        # TODO: implement feature
-        self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(enabled=False)), gridRow, 0, alignment=Qt.AlignRight)
-        #self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(checkState=Qt.Checked if self.settings.value("video/override_bg_resolution", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+        #gridRow += 1
+        ## TODO: implement feature
+        #self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(enabled=False)), gridRow, 0, alignment=Qt.AlignRight)
+        #self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
         self.containerOptions = {
@@ -959,6 +949,10 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
+        self.gridLayout.addWidget(self.bind("checkUpdates", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("checkUpdatesLabel", ClickLabel(buddy=self.checkUpdates, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
         self.gridLayout.setRowStretch(gridRow, 10)
 
@@ -982,6 +976,32 @@ class Ui_MainWindow(QMainWindow):
         self.loadSettings()
 
         self.retranslateUi()
+
+
+        try:
+            q = QProcess(program="ffmpeg", arguments=["-version"])
+            q.start()
+        except:
+            ffmpeg_version="UNKNOWN"
+
+        versions = {"kbp2video": __version__, "kbputils": kbputils.__version__}
+        if check2bool(self.checkUpdates):
+            version = lastversion.has_update(repo=f"ItMightBeKaraoke/kbp2video", at="github", pre_ok=True, current_version=versions["kbp2video"])
+            if version:
+                versions["kbp2video"] += f" [update to {version}]"
+            version = lastversion.has_update(repo=f"kbputils", at="pip", current_version=versions["kbputils"])
+            if version:
+                versions["kbputils"] += f" [update to {version}]"
+
+        if not ffmpeg_version:
+            try:
+                q.waitForFinished(1000 if check2bool(self.checkUpdates) else 2000)
+                q.setReadChannel(QProcess.StandardOutput)
+                version_line = q.readLine().toStdString().split()
+                ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
+            except:
+                ffmpeg_version = "MISSING/UNKNOWN"
+        self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {ffmpeg_version})")
 
         QMetaObject.connectSlotsByName(self)
     # setupUi
@@ -1141,7 +1161,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/output_resolution": self.resolutionBox.currentText(),
-            "video/override_bg_resolution": check2bool(self.overrideBGResolution),
+            #"video/override_bg_resolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
             "video/video_codec_index": self.vcodecBox.currentIndex(),
             "video/lossless": check2bool(self.lossless),
@@ -1151,6 +1171,7 @@ class Ui_MainWindow(QMainWindow):
             "kbp2video/relative_path": check2bool(self.relative),
             "kbp2video/output_dir": self.outputDir.text(),
             "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
+            "kbp2video/check_updates": check2bool(self.checkUpdates),
             **{"lyricimport/" + x: Ui_MainWindow.lyricsettings[x] for x in Ui_MainWindow.lyricsettings},
         }
         for setting, value in to_save.items():
@@ -1171,8 +1192,8 @@ class Ui_MainWindow(QMainWindow):
         # legacy options
         self.aspectRatioBox.setCurrentIndex(settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
         settings.remove("subtitle/aspect_ratio_index")
-        self.overrideBGResolution.setCheckState(bool2check(settings.value("overrideBGResolution", type=bool, defaultValue=False)))
-        settings.remove("overrideBGResolution")
+        #self.overrideBGResolution.setCheckState(bool2check(settings.value("overrideBGResolution", type=bool, defaultValue=False)))
+        #settings.remove("overrideBGResolution")
         self.resolutionBox.setCurrentIndex(settings.value("video/output_resolution_index", type=int, defaultValue=0))
         settings.remove("video/output_resolution_index")
 
@@ -1200,7 +1221,7 @@ class Ui_MainWindow(QMainWindow):
         elif resolution_text != "<NONEXISTENT>":
             self.resolutionBox.setCurrentText(resolution_text)
 
-        self.overrideBGResolution.setCheckState(bool2check(settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
+        #self.overrideBGResolution.setCheckState(bool2check(settings.value("video/override_bg_resolution", type=bool, defaultValue=False)))
         self.containerBox.setCurrentIndex(settings.value("video/container_format_index", type=int, defaultValue=0))
         self.updateCodecs()
         self.vcodecBox.setCurrentIndex(settings.value("video/video_codec_index", type=int, defaultValue=0))
@@ -1211,6 +1232,7 @@ class Ui_MainWindow(QMainWindow):
         self.relative.setCheckState(bool2check(settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
         self.outputDir.setText(settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
         self.skipBackgrounds.setCheckState(bool2check(settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
+        self.checkUpdates.setCheckState(bool2check(settings.value("kbp2video/check_updates", type=bool, defaultValue=False)))
         Ui_MainWindow.lyricsettings = {
             "max_lines_per_page": 6,
             "min_gap_for_new_page": 1000,
@@ -1550,15 +1572,15 @@ class Ui_MainWindow(QMainWindow):
                     #    Q_ARG(str, f"Unable to determine the resolution of file\n{background}"))
                     signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
                     continue
-                if self.overrideBGResolution.checkState == Qt.Checked and not unsupported_message:
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info',
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Unsupported Option"),
-                    #    Q_ARG(str, f"Override background resolution option not supported yet!"))
-                    signals.error.emit(f"Unsupported option Override Background selected, ignoring", False)
-                    unsupported_message = True
+                #if self.overrideBGResolution.checkState == Qt.Checked and not unsupported_message:
+                #    #QMetaObject.invokeMethod(
+                #    #    self,
+                #    #    'info',
+                #    #    Qt.AutoConnection,
+                #    #    Q_ARG(str, "Unsupported Option"),
+                #    #    Q_ARG(str, f"Override background resolution option not supported yet!"))
+                #    signals.error.emit(f"Unsupported option Override Background selected, ignoring", False)
+                #    unsupported_message = True
 
             bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
             ass_ratio = fractions.Fraction(width, border and 216 or 192)
@@ -1729,10 +1751,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Enter a number in bits per second, or suffixed with a k for kilobits per second.", None))
         self.abitrateBox.setPlaceholderText(QCoreApplication.translate(
             "MainWindow", "Leave blank for default", None))
-        self.overrideBGLabel.setText(QCoreApplication.translate(
-            "MainWindow", "Override background", None))
-        self.overrideBGLabel.setToolTip(QCoreApplication.translate(
-            "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
+        #self.overrideBGLabel.setText(QCoreApplication.translate(
+        #    "MainWindow", "Override background", None))
+        #self.overrideBGLabel.setToolTip(QCoreApplication.translate(
+        #    "MainWindow", "If this is unchecked, the resolution setting is only used for tracks with\nthe background set as a color. If it is checked, background image/video\nis scaled (and letterboxed if the aspect ratio differs) to achieve the\ntarget resolution.\n\nFEATURE NOT SUPPORTED YET", None))
         self.losslessLabel.setText(QCoreApplication.translate(
             "MainWindow", "&Lossless video", None))
         self.lossless.setToolTip(QCoreApplication.translate(
@@ -1745,6 +1767,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Ig&nore BG files in drag/drop", None))
         self.skipBackgroundsLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "When dragging and dropping files, do not import any image or video files\nas backgrounds. This is useful if you have your output and input files\nin the same place and usually use solid color backgrounds.", None))
+        self.checkUpdatesLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Check for updates at start (&X)", None))
+        self.skipBackgroundsLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "When kbp2video is started, check for updates and alert if one is available.", None))
         self.generalDivider.setText(QCoreApplication.translate(
             "MainWindow", "kbp2video options", None))
         self.outputDirLabel.setText(QCoreApplication.translate(
