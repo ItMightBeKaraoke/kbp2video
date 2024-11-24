@@ -17,6 +17,7 @@ class AdvancedEditor(QDialog):
         "enable",
         "file",
         "length",
+        "concat",
         #"overlap",
         "fadeIn",
         "fadeOut",
@@ -171,16 +172,32 @@ class AdvancedEditor(QDialog):
                     getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
 
             row += 1
+            grid.addWidget(self.bind(f"{x}_concat", QCheckBox()), row, 0, alignment=Qt.AlignRight)
+            grid.addWidget(self.bind(f"{x}_concat_label", ClickLabel(buddy=getattr(self, f"{x}_concat"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+
+            if (key := f"{x}_concat") in self.settings:
+                cur = getattr(self, key)
+                if self.settings[key] == None:
+                    cur.setTristate(True)
+                    cur.setCheckState(Qt.PartiallyChecked)
+                    cur.setStyleSheet("color: black; background-color: gold")
+                    cur.stateChanged.connect(self.checkbox_highlight_handler(cur))
+                else:
+                    cur.setCheckState(bool2check(self.settings[key]))
+
+            row += 1
             grid.addWidget(self.bind(f"{x}_black", QCheckBox()), row, 0, alignment=Qt.AlignRight)
             grid.addWidget(self.bind(f"{x}_black_label", ClickLabel(buddy=getattr(self,f"{x}_black"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+
             if (key := f"{x}_black") in self.settings:
+                cur = getattr(self, key)
                 if self.settings[key] == None:
-                    getattr(self, key).setTristate(True)
-                    getattr(self, key).setCheckState(Qt.PartiallyChecked)
-                    getattr(self, key).setStyleSheet("color: black; background-color: gold")
-                    getattr(self, key).stateChanged.connect(self.fade_black_enabled_handler)
+                    cur.setTristate(True)
+                    cur.setCheckState(Qt.PartiallyChecked)
+                    cur.setStyleSheet("color: black; background-color: gold")
+                    cur.stateChanged.connect(self.checkbox_highlight_handler(cur))
                 else:
-                    getattr(self, key).setCheckState(Qt.Checked if self.settings[key] else Qt.Unchecked)
+                    cur.setCheckState(bool2check(self.settings[key]))
 
         self.checkbox_enabled_handler()
         self.retranslateUi()
@@ -220,9 +237,10 @@ class AdvancedEditor(QDialog):
         self.saveSettings()
         super().accept()
 
-    def fade_black_enabled_handler(self):
-        for x in ("intro", "outro"):
-            self.highlight(f"{x}_black", getattr(self, f"{x}_black").checkState() == Qt.PartiallyChecked)
+    def checkbox_highlight_handler(self, box):
+        def highlight_me():
+            self.highlight(box, box.checkState() == Qt.PartiallyChecked)
+        return highlight_me
 
     def checkbox_enabled_handler(self):
         for x in ("intro", "outro"):
@@ -277,6 +295,7 @@ class AdvancedEditor(QDialog):
             getattr(self, f"{x}_file_label").setText(QCoreApplication.translate("AdvancedEditor", "&Image/Video File"))
             getattr(self, f"{x}_file_button").setText(QCoreApplication.translate("AdvancedEditor", "Bro&wse"))
             getattr(self, f"{x}_length_label").setText(QCoreApplication.translate("AdvancedEditor", "Display &Length"))
+            getattr(self, f"{x}_concat_label").setText(QCoreApplication.translate("AdvancedEditor", f'{"Pre" if x == "intro" else "Ap"}&pend instead of embedding at {"start" if x == "intro" else "end"}'))
             #getattr(self, f"{x}_overlap_label").setText(QCoreApplication.translate("AdvancedEditor", "&Overlap Length"))
             getattr(self, f"{x}_fade_label").setText(QCoreApplication.translate("AdvancedEditor", "&Fade In/Out"))
             getattr(self, f"{x}_black_label").setText(QCoreApplication.translate("AdvancedEditor", f'Fade {"from" if x == "intro" else "to"} &black'))
