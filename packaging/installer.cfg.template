@@ -11,37 +11,37 @@ script=kbp2video.pyw
 console=true
 
 [Python]
-version=3.12.6
+version=3.12.7
 include_msvcrt=false
 bitness=64
 
 [Include]
 pypi_wheels = kbp2video==${version}
-	ass==0.5.4
-	ffmpeg-python==0.2.0
-	future==1.0.0
-	kbputils==${kbputils_version}
-	PySide6_Essentials==6.7.2
-	shiboken6==6.7.2
 	appdirs==1.4.4
+	ass==0.5.4
 	beautifulsoup4==4.12.3
-	CacheControl==0.14.0
+	CacheControl==0.14.1
 	certifi==2024.8.30
-	charset-normalizer==3.3.2
+	charset-normalizer==3.4.0
 	distro==1.9.0
 	feedparser==6.0.11
-	idna==3.8
-	lastversion==3.5.5
-	filelock==3.16.0
-	msgpack==1.0.8
+	ffmpeg-python==0.2.0
+	filelock==3.16.1
+	future==1.0.0
+	idna==3.10
+	kbputils==${kbputils_version}
+	lastversion==3.5.7
+	msgpack==1.1.0
+    packaging==24.2
+	PySide6_Essentials==6.8.0.2
 	python-dateutil==2.9.0.post0
 	PyYAML==6.0.2
 	requests==2.32.3
+	shiboken6==6.8.0.2
 	six==1.16.0
 	soupsieve==2.6
-	tqdm==4.66.5
+	tqdm==4.67.0
 	urllib3==1.26.20
-    packaging==24.1
 local_wheels = sgmllib3k-1.0.0-py3-none-any.whl
 
 files = ffmpeg/
