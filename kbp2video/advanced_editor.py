@@ -64,7 +64,8 @@ class AdvancedEditor(QDialog):
                 elif type(widget) == QLineEdit:
                     val = widget.text()
                 elif type(widget) == QTimeEdit:
-                    val = widget.time().toString("mm:ss.zzz")
+                    #val = widget.time().toString("mm:ss.zzz")
+                    val = widget.time().msecsSinceStartOfDay()
                 else:
                     print(f"Oops, missed type {type(widget).__name__} for {x}_{setting}")
                     val = None
@@ -133,7 +134,7 @@ class AdvancedEditor(QDialog):
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
                     self.highlight_once(key, "timeChanged")
                 else:
-                    getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
+                    getattr(self, key).setTime(QTime.fromMSecsSinceStartOfDay(self.settings[key]))
 
             #row += 1
             #grid.addWidget(self.bind(f"{x}_overlap", QTimeEdit(displayFormat="mm:ss.zzz")), row, 1, 1, 2)
@@ -163,13 +164,13 @@ class AdvancedEditor(QDialog):
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
                     self.highlight_once(key, "timeChanged")
                 else:
-                    getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
+                    getattr(self, key).setTime(QTime.fromMSecsSinceStartOfDay(self.settings[key]))
             if (key := f"{x}_fadeOut") in self.settings:
                 if self.settings[key] == None:
                     # getattr(self, key).setValue("<Multiple Values>") # TODO: how to handle indeterminate value? Gray but click enables edit?
                     self.highlight_once(key, "timeChanged")
                 else:
-                    getattr(self, key).setTime(QTime.fromString(self.settings[key],"mm:ss.zzz"))
+                    getattr(self, key).setTime(QTime.fromMSecsSinceStartOfDay(self.settings[key]))
 
             row += 1
             grid.addWidget(self.bind(f"{x}_concat", QCheckBox()), row, 0, alignment=Qt.AlignRight)

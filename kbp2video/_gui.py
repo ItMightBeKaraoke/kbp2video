@@ -1491,8 +1491,8 @@ class Ui_MainWindow(QMainWindow):
             base_assfile = os.path.basename(assfile)
 
             try:
-                song_length = ffmpeg.probe(audio)['format']['duration']
-                song_length_float = float(song_length)
+                song_length_str = ffmpeg.probe(audio)['format']['duration']
+                song_length_ms = int(float(song_length_str) * 1000)
             except:
                 conversion_errors = True
                 #QMetaObject.invokeMethod(
@@ -1503,14 +1503,13 @@ class Ui_MainWindow(QMainWindow):
                 #    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
                 signals.error.emit(f"Skipped {kbp}:\nUnable to process audio file\n{audio}\n{traceback.format_exc()}", True)
                 continue
-            song_length_ms = int(song_length_float * 1e3)
 
             if background_type == 0:
-                background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi", t=song_length)
+                background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi", t=song_length_str)
                 bg_size = QSize(*(int(x) for x in resolution.split('x')))
             elif background_type == 1:
                 bg_size = QImage(background).size()
-                background_video = ffmpeg.input(background, loop=1, framerate=60, t=song_length)
+                background_video = ffmpeg.input(background, loop=1, framerate=60, t=song_length_str)
             elif background_type == 2:
                 # Pull the dimensions of the first video stream found in the file
                 try:
@@ -1533,7 +1532,6 @@ class Ui_MainWindow(QMainWindow):
             concat_length = 0
             for x in ("intro", "outro"):
                 if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
-                    length_float = 60 * float(advanced[f"{x}_length"].split(":")[0]) + float(advanced[f"{x}_length"].split(":")[1]) 
                     # TODO: alpha, sound?
                     opts = {}
                     if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
@@ -1541,33 +1539,30 @@ class Ui_MainWindow(QMainWindow):
                         opts["framerate"]=60
                     # TODO skip scale if matching?
                     # TODO set x/y if mismatched aspect ratio?
-                    overlay = ffmpeg.input(advanced[f"{x}_file"], t=advanced[f"{x}_length"], **opts).filter_(
+                    overlay = ffmpeg.input(advanced[f"{x}_file"], t=str(advanced[f"{x}_length"])+"ms", **opts).filter_(
                         "scale", s=f"{bg_size.width()}x{bg_size.height()}")
                     if x == "outro" and not advanced["outro_concat"]:
-                        #leadin = ffmpeg_color("000000", s=f"{bg_size.width()}x{bg_size.height()}", r=60, d=(float(song_length) - float(advanced[f"{x}_length"].split(":")[1]))).filter_("format", "rgba")
-                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=(song_length_float - float(advanced[f"{x}_length"].split(":")[1])))
+                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=str(song_length_ms - advanced[f"{x}_length"])+"ms")
                         overlay = leadin.concat(overlay)
                     for y in ("In", "Out"):
-                        if float(advanced[f"{x}_fade{y}"].split(":")[1]):
-                            # TODO: minutes
+                        if advanced[f"{x}_fade{y}"]:
                             fade_settings = {}
-                            print(advanced[f"{x}_black"])
                             if not advanced[f"{x}_concat"] and (not advanced[f"{x}_black"] or (x, y) == ("intro", "Out") or (x, y) == ("outro", "In")):
                                 fade_settings["alpha"] = 1
                             if x == "intro" or advanced["outro_concat"]:
                                 if y == "In":
                                     fade_settings["st"] = 0
                                 else:
-                                    fade_settings["st"] = length_float - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                                    fade_settings["st"] = (advanced[f"{x}_length"] - advanced[f"{x}_fadeOut"]) / 1000 # According to manpage this has to be in seconds
                             else:
                                 if y == "Out":
-                                    fade_settings["st"] = song_length_float - float(advanced[f"{x}_fadeOut"].split(":")[1])
+                                    fade_settings["st"] = (song_length_ms - advanced[f"{x}_fadeOut"]) / 1000
                                 else:
-                                    fade_settings["st"] = song_length_float - length_float
-                            overlay = overlay.filter_("fade", t=y.lower(), d=advanced[f"{x}_fade{y}"].split(":")[1], **fade_settings)
+                                    fade_settings["st"] = (song_length_ms - advanced[f"{x}_length"]) / 1000
+                            overlay = overlay.filter_("fade", t=y.lower(), d=(advanced[f"{x}_fade{y}"] / 1000), **fade_settings)
                     if advanced[f"{x}_concat"]:
                         to_concat[0 if x == "intro" else 1] = overlay
-                        concat_length += length_float
+                        concat_length += advanced[f"{x}_length"]
                     else:
                         background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
 
@@ -1628,10 +1623,10 @@ class Ui_MainWindow(QMainWindow):
 
             if to_concat[0]:
                 filtered_video = to_concat[0].concat(filtered_video)
-                audio_stream = ffmpeg.input("anullsrc", f="lavfi", t=advanced["intro_length"]).audio.concat(audio_stream, v=0, a=1)
+                audio_stream = ffmpeg.input("anullsrc", f="lavfi", t=str(advanced["intro_length"])+"ms").audio.concat(audio_stream, v=0, a=1)
             if to_concat[1]:
                 filtered_video = filtered_video.concat(to_concat[1])
-                audio_stream = audio_stream.concat(ffmpeg.input("anullsrc", f="lavfi", t=advanced["outro_length"]).audio, v=0, a=1)
+                audio_stream = audio_stream.concat(ffmpeg.input("anullsrc", f="lavfi", t=str(advanced["outro_length"])+"ms").audio, v=0, a=1)
 
             output_options.update(self.audioffmpegBitrate())
 
@@ -1663,7 +1658,7 @@ class Ui_MainWindow(QMainWindow):
             print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
             q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
             q.setReadChannel(QProcess.StandardOutput)
-            ffmpeg_processes.append((kbp, song_length_ms + int(concat_length * 1e3), q))
+            ffmpeg_processes.append((kbp, song_length_ms + concat_length, q))
 
         for row, (kbp, song_length_ms, q) in enumerate(ffmpeg_processes):
             q.start()
