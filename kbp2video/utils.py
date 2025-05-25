@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QCheckBox, QLabel
 from PySide6.QtCore import QMimeDatabase, Qt
+import sys
 
 # Minor enhancement to QLabel - if it has a buddy configured, that will not
 # only allow a keyboard mnemonic to be associated, but will also focus the buddy
@@ -28,3 +29,22 @@ def check2bool(state_or_checkbox):
 
 def bool2check(boolVal):
     return Qt.Checked if boolVal else Qt.Unchecked
+
+# This is kind of ugly, but so are the terminal windows that pop up in Windows
+if sys.platform == "win32":
+    print("Wrapping popen for Windows...")
+    import subprocess
+    
+    _orig_popen_init = subprocess.Popen.__init__
+
+    # Patch the __init__  for Popen to avoid creating windows in very specific cases
+    def _wrapped_popen_init(self, *args, **kwargs):
+        print(f"Popen launched with {args}, {kwargs}")
+        if 'creationflags' not in kwargs and ("ffmpeg" in args[0] or "ffprobe" in args[0]):
+            print("creationflags added to popen call")
+            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        return _orig_popen_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _wrapped_popen_init
+
+    print("done")
