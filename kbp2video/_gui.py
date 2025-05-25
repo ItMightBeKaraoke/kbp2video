@@ -581,7 +581,7 @@ class Ui_MainWindow(QMainWindow):
     def setupUi(self):
         if not self.objectName():
             self.setObjectName("KBP to Video")
-        self.resize(1280, 720)
+        self.resize(1280, 800)
         self.bind("centralWidget", QWidget(self))
 
         self.setCentralWidget(self.centralWidget)
@@ -836,6 +836,10 @@ class Ui_MainWindow(QMainWindow):
 
         self.gridLayout.addWidget(self.bind("colorChooseButton", QPushButton(
             clicked=self.color_choose_button)), gridRow, 2)
+
+        gridRow += 1
+        self.gridLayout.addWidget(self.bind("loopBGBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("loopBGLabel", ClickLabel(buddy=self.loopBGBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
         self.resolutionOptions = [
@@ -1161,6 +1165,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/style1_spacing": check2bool(self.spacingBox),
             "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
+            "video/loop_bg": check2bool(self.loopBGBox),
             "video/output_resolution": self.resolutionBox.currentText(),
             #"video/override_bg_resolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
@@ -1214,6 +1219,7 @@ class Ui_MainWindow(QMainWindow):
         self.spacingBox.setCheckState(bool2check(settings.value("subtitle/style1_spacing", type=bool, defaultValue=False)))
         self.overflowBox.setCurrentText(settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=settings.value("video/background_color", type=str, defaultValue="#000000"))
+        self.loopBGBox.setCheckState(bool2check(settings.value("video/loop_bg", type=bool, defaultValue=False)))
 
         # Restore existing or custom option
         resolution_text = settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
@@ -1394,10 +1400,11 @@ class Ui_MainWindow(QMainWindow):
             elif background.startswith("color:"):
                 background = background[6:].strip(" #")
                 background_type = 0
-            elif (mimename := self.filedrop.mimedb.mimeTypeForFile(background).name()).startswith('image/'):
-                background_type = 1
-            elif mimename.startswith('video/'):
+            # gif should be treated as video
+            elif (mimename := self.filedrop.mimedb.mimeTypeForFile(background).name()).startswith('video/') or mimename == 'image/gif':
                 background_type = 2
+            elif mimename.startswith('image/'):
+                background_type = 1
             # bad mime type (not image/video or nonexistant file), or no background specified
             if background_type == None:
                 background_type = 0
@@ -1525,9 +1532,24 @@ class Ui_MainWindow(QMainWindow):
                     signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
                     continue
                 bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
-                background_video = ffmpeg.input(background).video
 
-            # TODO figure out time/frame for outro
+                if check2bool(self.loopBGBox):
+                    background_video = ffmpeg.input(background, stream_loop=-1, t=song_length_str).video
+                else:
+                    bgv_length_ms = int(float(bginfo['format']['duration']) * 1000)
+                    background_video = ffmpeg.input(background).video
+                    # If the background video is shorter than the audio (and possibly subtitle), repeat the last frame
+                    if bgv_length_ms < song_length_ms:
+                        background_video = background_video.filter_(
+                                "tpad",
+                                stop_mode="clone",
+                                stop_duration=str(song_length_ms-bgv_length_ms)+"ms",
+                            )
+                    else:
+                        song_length_ms = bgv_length_ms
+
+            ### Note: past this point, song_length_ms represents the confirmed output file duration rather than just the audio length
+
             to_concat = [None, None]
             concat_length = 0
             for x in ("intro", "outro"):
@@ -1753,6 +1775,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Timesta&mp Offset", None))
         self.ffmpegDivider.setText(QCoreApplication.translate(
             "MainWindow", "Video options", None))
+        self.loopBGLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Loop background video", None))
+        self.loopBGLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "If unchecked and a background video is set, the video will play\nexactly once, to its full duration. If the duration is less than\nthe audio, the last frame will repeat.\n\nIf checked, the background video will loop as many times as needed\nto the duration of the audio (even if that is less than 1, so the\nbackground video would truncate if longer than the audio).", None))
         self.resolutionLabel.setText(QCoreApplication.translate(
             "MainWindow", "&Output Resolution", None))
         self.containerLabel.setText(QCoreApplication.translate(
