@@ -13,7 +13,7 @@ import string
 import re
 import time #sleep
 import fractions
-from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot, QCommandLineParser
 from PySide6.QtGui import QColor, QImage, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QTableWidget, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QTableView, QAbstractItemView, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox
 import PySide6
@@ -267,7 +267,7 @@ class DropLabel(QLabel):
         if identified is None:
             identified = FileResultSet()
         for path in paths:
-            path = os.path.join(base_dir, path)
+            path = os.path.abspath(os.path.join(base_dir, path))
             isdir = os.path.isdir(path)
             if isdir and dir_expand is None:
                 result = QMessageBox.question(
@@ -566,9 +566,10 @@ class Ui_MainWindow(QMainWindow):
     RELEVANT_FILE_FILTER = "*." + " *.".join(
         "kbp flac wav ogg opus mp3 aac mp4 mkv avi webm mov mpg mpeg jpg jpeg png gif jfif jxl bmp tiff webp".split())
 
-    def __init__(self, app):
+    def __init__(self, app, preload_files=None):
         super().__init__()
         self.app = app
+        self.preload_files = preload_files
         self.setupUi()
 
     # Convenience method for adding a Qt object as a property in self and and
@@ -982,7 +983,6 @@ class Ui_MainWindow(QMainWindow):
 
         self.retranslateUi()
 
-
         try:
             q = QProcess(program="ffmpeg", arguments=["-version"])
             q.start()
@@ -1009,6 +1009,11 @@ class Ui_MainWindow(QMainWindow):
         self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {ffmpeg_version}, PySide6 {PySide6.__version__})")
 
         QMetaObject.connectSlotsByName(self)
+
+        if self.preload_files:
+            self.filedrop.importFiles(self.preload_files)
+            delattr(self, "preload_files")
+
     # setupUi
 
     def prompt_import_settings_file(self):
@@ -1833,15 +1838,18 @@ class Ui_MainWindow(QMainWindow):
 
 
 def run(argv=sys.argv, ffmpeg_path=None):
-    if '--help' in argv or '-h' in argv:
-        print("kbp2video [[--help | -h] | [--version | -V]] [Qt6 options]")
-        sys.exit(0)
-    elif '--version' in argv or '-V' in argv:
-        print(__version__)
-        sys.exit(0)
-    # Look better on Windows
     QApplication.setStyle("Fusion")
+    QApplication.setApplicationName("kbp2video")
+    QApplication.setApplicationVersion(__version__)
     app = QApplication(argv)
+    parser = QCommandLineParser()
+    parser.setApplicationDescription(QCoreApplication.translate("MainWindow", "Tool to work with karaoke projects and render high quality videos. Input files can be provided via the command line, but the GUI is shown regardless, to configure options for conversion.", None))
+    parser.addPositionalArgument(QCoreApplication.translate("MainWindow", "files", None),
+                                 QCoreApplication.translate("MainWindow", "files to import", None),
+                                 f'[{QCoreApplication.translate("MainWindow", "files", None)}...]')
+    parser.addHelpOption()
+    parser.addVersionOption()
+    parser.process(app)
     orig_path = os.environ['PATH']
     if ffmpeg_path:
         os.environ['PATH'] = os.pathsep.join([ffmpeg_path, os.environ['PATH']])
@@ -1855,6 +1863,8 @@ def run(argv=sys.argv, ffmpeg_path=None):
     if not shutil.which("ffprobe"):
         QMessageBox.critical(None, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
         sys.exit(1)
-    window = Ui_MainWindow(app)
+    if preload_files := parser.positionalArguments():
+        print(f"Found preload files: {preload_files}")
+    window = Ui_MainWindow(app, preload_files)
     window.show()
     sys.exit(app.exec())
