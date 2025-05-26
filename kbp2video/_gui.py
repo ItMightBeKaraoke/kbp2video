@@ -322,7 +322,7 @@ class DropLabel(QLabel):
     def importFiles(self, data, drop=True):
         mainWindow = self.parentWidget().parentWidget().parentWidget()
         if data and (result := self.generateFileList(data)):
-            for key, files in result.merged_kbp_ass_data().items():
+            for key, files in (kbp_ass_data := result.merged_kbp_ass_data()).items():
             #for key, files in result.kbp.items():
                 # TODO: handle multiple kbp files under one key
                 kbpassFile = next(iter(files))
@@ -353,7 +353,7 @@ class DropLabel(QLabel):
                     # If there happens to be only one kbp, assume all selected audio/backgrounds were intended for it
                     # Also, if there happens to be only one background, assume
                     # it's for all the KBPs
-                    if not match and (len(result.all_files('kbp')) == 1 or (
+                    if not match and (len(kbp_ass_data) == 1 or (
                             filetype == 'background' and len(getattr(result, 'background')) == 1)):
                         match = result.all_files(filetype)
                         print(match)
