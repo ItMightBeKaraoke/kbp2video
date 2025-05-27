@@ -14,8 +14,8 @@ import re
 import time #sleep
 import fractions
 from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot, QCommandLineParser
-from PySide6.QtGui import QColor, QImage, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator
-from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QTableWidget, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QTableView, QAbstractItemView, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox
+from PySide6.QtGui import QColor, QImage, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator, QPixmap
+from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QTableWidget, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QTableView, QAbstractItemView, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox, QSplashScreen
 import PySide6
 from .utils import ClickLabel, bool2check, check2bool, mimedb
 from .advanced_editor import AdvancedEditor
@@ -605,7 +605,7 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
         self.editmenu.addAction("&Lyrics Import Options", self.advanced_options)
         self.helpmenu = self.menubar.addMenu("&Help")
-        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nPySide6 version: {PySide6.__version__}\nffmpeg version: {ffmpeg_version}"))
+        self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nPySide6 version: {PySide6.__version__}\nffmpeg version: {self.ffmpeg_version}"))
         self.helpmenu.addAction("&Check for Updates…", lambda: UpdateBox.update_check(self))
         self.setMenuBar(self.menubar)
 
@@ -614,11 +614,7 @@ class Ui_MainWindow(QMainWindow):
         # No point in updating the status bar with empty messages
         self.installEventFilter(EventFilter(self, lambda obj, event: True if event.type() == QEvent.StatusTip and not event.tip() else False))
 
-        ffmpeg_version=""
-
-        QCoreApplication.setOrganizationName("ItMightBeKaraoke")
-        QCoreApplication.setApplicationName("kbp2video")
-        QCoreApplication.setOrganizationDomain("itmightbekaraoke.com")
+        self.ffmpeg_version=""
 
         self.settings = QSettings()
 
@@ -983,11 +979,23 @@ class Ui_MainWindow(QMainWindow):
 
         self.retranslateUi()
 
+        self.statusbar_update_check()
+
+        QMetaObject.connectSlotsByName(self)
+
+        if self.preload_files:
+            self.filedrop.importFiles(self.preload_files)
+            delattr(self, "preload_files")
+
+    # setupUi
+
+    def statusbar_update_check(self):
+        self.ffmpeg_version = ""
         try:
             q = QProcess(program="ffmpeg", arguments=["-version"])
             q.start()
         except:
-            ffmpeg_version="UNKNOWN"
+            self.ffmpeg_version="UNKNOWN"
 
         versions = {"kbp2video": __version__, "kbputils": kbputils.__version__}
         if check2bool(self.checkUpdates):
@@ -998,23 +1006,16 @@ class Ui_MainWindow(QMainWindow):
             if version:
                 versions["kbputils"] += f" [update to {version}]"
 
-        if not ffmpeg_version:
+        #TODO: Get this working more reliably on Windows
+        if not self.ffmpeg_version:
             try:
                 q.waitForFinished(1000 if check2bool(self.checkUpdates) else 2000)
                 q.setReadChannel(QProcess.StandardOutput)
                 version_line = q.readLine().toStdString().split()
-                ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
+                self.ffmpeg_version = version_line[i+1] if (i := version_line.index("version")) else 'UNKNOWN'
             except:
-                ffmpeg_version = "MISSING/UNKNOWN"
-        self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {ffmpeg_version}, PySide6 {PySide6.__version__})")
-
-        QMetaObject.connectSlotsByName(self)
-
-        if self.preload_files:
-            self.filedrop.importFiles(self.preload_files)
-            delattr(self, "preload_files")
-
-    # setupUi
+                self.ffmpeg_version = "MISSING/UNKNOWN"
+        self.statusbar.showMessage(f"kbp2video {versions['kbp2video']} (kbputils {versions['kbputils']}, ffmpeg {self.ffmpeg_version}, PySide6 {PySide6.__version__})")
 
     def prompt_import_settings_file(self):
         file, _ = QFileDialog.getOpenFileName(self, "Import Settings File", filter="Settings (*.ini)")
@@ -1838,10 +1839,27 @@ class Ui_MainWindow(QMainWindow):
 
 
 def run(argv=sys.argv, ffmpeg_path=None):
+    show_splash = not ("-h" in argv or "--help" in argv or "-?" in argv or "-v" in argv or "--version" in argv)
+    app = QApplication(argv)
+    if show_splash:
+        logo = QPixmap("logo_mockup.png")
+        if logo.isNull():
+            show_splash = False
+        else:
+            splash = QSplashScreen(logo, f=Qt.WindowStaysOnTopHint)
+            splash.show()
+            splash.showMessage("Starting up...", alignment=Qt.AlignHCenter | Qt.AlignBottom, color=Qt.white)
+            QApplication.processEvents()
+
     QApplication.setStyle("Fusion")
     QApplication.setApplicationName("kbp2video")
     QApplication.setApplicationVersion(__version__)
-    app = QApplication(argv)
+    QApplication.setOrganizationName("ItMightBeKaraoke")
+    QApplication.setOrganizationDomain("itmightbekaraoke.com")
+
+    if show_splash:
+        QApplication.processEvents()
+
     parser = QCommandLineParser()
     parser.setApplicationDescription(QCoreApplication.translate("MainWindow", "Tool to work with karaoke projects and render high quality videos. Input files can be provided via the command line, but the GUI is shown regardless, to configure options for conversion.", None))
     parser.addPositionalArgument(QCoreApplication.translate("MainWindow", "files", None),
@@ -1850,21 +1868,33 @@ def run(argv=sys.argv, ffmpeg_path=None):
     parser.addHelpOption()
     parser.addVersionOption()
     parser.process(app)
+
+    if preload_files := parser.positionalArguments():
+        print(f"Found preload files: {preload_files}")
+
+    if show_splash:
+        QApplication.processEvents()
+
+    window = Ui_MainWindow(app, preload_files)
+    window.show()
+
+    if show_splash:
+        splash.finish(window)
+
     orig_path = os.environ['PATH']
     if ffmpeg_path:
         os.environ['PATH'] = os.pathsep.join([ffmpeg_path, os.environ['PATH']])
     if not shutil.which("ffmpeg"):
-        result = QFileDialog.getExistingDirectory(None, "Locate folder with ffmpeg and ffprobe")
+        result = QFileDialog.getExistingDirectory(window, "Locate folder with ffmpeg and ffprobe")
         if result:
             os.environ['PATH'] = os.pathsep.join([result, orig_path])
+            window.statusbar_update_check()
+            QApplication.processEvents()
         if not shutil.which("ffmpeg"):
-            QMessageBox.critical(None, "ffmpeg not found", "ffmpeg still not found, please download the full release or otherwise install ffmpeg.")
+            QMessageBox.critical(window, "ffmpeg not found", "ffmpeg still not found, please download the full release or otherwise install ffmpeg.")
             sys.exit(1)
     if not shutil.which("ffprobe"):
-        QMessageBox.critical(None, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
+        QMessageBox.critical(window, "ffprobe not found", "ffprobe still not found, please download the full release or otherwise install ffmpeg.")
         sys.exit(1)
-    if preload_files := parser.positionalArguments():
-        print(f"Found preload files: {preload_files}")
-    window = Ui_MainWindow(app, preload_files)
-    window.show()
+
     sys.exit(app.exec())
