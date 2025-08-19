@@ -15,13 +15,14 @@ class AdvancedEditor(QDialog):
 
     SETTING_NAMES = (
         "enable",
-        "file",
+        "media",
         "length",
         "concat",
         #"overlap",
         "fadeIn",
         "fadeOut",
-        "black"
+        "fade_black",
+        "sound"
     )
 
     def __init__(self, tableWidget):
@@ -114,11 +115,11 @@ class AdvancedEditor(QDialog):
             getattr(self, f"{x}_enable").stateChanged.connect(self.checkbox_enabled_handler)
 
             row += 1
-            grid.addWidget(self.bind(f"{x}_file", QLineEdit()), row, 1)
-            grid.addWidget(self.bind(f"{x}_file_label", ClickLabel(buddy=getattr(self, f"{x}_file"))), row, 0)
+            grid.addWidget(self.bind(f"{x}_media", QLineEdit()), row, 1)
+            grid.addWidget(self.bind(f"{x}_file_label", ClickLabel(buddy=getattr(self, f"{x}_media"))), row, 0)
             grid.addWidget(self.bind(f"{x}_file_button", QPushButton(clicked=getattr(self, f"load_{x}_file"))), row, 2)
 
-            if (key := f"{x}_file") in self.settings:
+            if (key := f"{x}_media") in self.settings:
                 if self.settings[key] == None:
                     getattr(self, key).setText("<Multiple Values>")
                     self.highlight_once(key, "textChanged")
@@ -187,10 +188,24 @@ class AdvancedEditor(QDialog):
                     cur.setCheckState(bool2check(self.settings[key]))
 
             row += 1
-            grid.addWidget(self.bind(f"{x}_black", QCheckBox()), row, 0, alignment=Qt.AlignRight)
-            grid.addWidget(self.bind(f"{x}_black_label", ClickLabel(buddy=getattr(self,f"{x}_black"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+            grid.addWidget(self.bind(f"{x}_fade_black", QCheckBox()), row, 0, alignment=Qt.AlignRight)
+            grid.addWidget(self.bind(f"{x}_fade_black_label", ClickLabel(buddy=getattr(self,f"{x}_fade_black"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
 
-            if (key := f"{x}_black") in self.settings:
+            if (key := f"{x}_fade_black") in self.settings:
+                cur = getattr(self, key)
+                if self.settings[key] == None:
+                    cur.setTristate(True)
+                    cur.setCheckState(Qt.PartiallyChecked)
+                    cur.setStyleSheet("color: black; background-color: gold")
+                    cur.stateChanged.connect(self.checkbox_highlight_handler(cur))
+                else:
+                    cur.setCheckState(bool2check(self.settings[key]))
+
+            row += 1
+            grid.addWidget(self.bind(f"{x}_sound", QCheckBox()), row, 0, alignment=Qt.AlignRight)
+            grid.addWidget(self.bind(f"{x}_sound_label", ClickLabel(buddy=getattr(self,f"{x}_sound"), buddyMethod=QCheckBox.toggle)), row, 1, 1, 2)
+
+            if (key := f"{x}_sound") in self.settings:
                 cur = getattr(self, key)
                 if self.settings[key] == None:
                     cur.setTristate(True)
@@ -275,7 +290,7 @@ class AdvancedEditor(QDialog):
                 "All Files (*)")))
         # TODO: figure out a starting dir?
         if result:
-            getattr(self, f"{where}_file").setText(file)
+            getattr(self, f"{where}_media").setText(file)
             if mimedb.mimeTypeForFile(file).name().startswith('video/'):
                 # Maybe not perfect if it contains multiple streams of varying sizes, but should be unlikely
                 try:
@@ -299,7 +314,8 @@ class AdvancedEditor(QDialog):
             getattr(self, f"{x}_concat_label").setText(QCoreApplication.translate("AdvancedEditor", f'{"Pre" if x == "intro" else "Ap"}&pend instead of embedding at {"start" if x == "intro" else "end"}'))
             #getattr(self, f"{x}_overlap_label").setText(QCoreApplication.translate("AdvancedEditor", "&Overlap Length"))
             getattr(self, f"{x}_fade_label").setText(QCoreApplication.translate("AdvancedEditor", "&Fade In/Out"))
-            getattr(self, f"{x}_black_label").setText(QCoreApplication.translate("AdvancedEditor", f'Fade {"from" if x == "intro" else "to"} &black'))
+            getattr(self, f"{x}_fade_black_label").setText(QCoreApplication.translate("AdvancedEditor", f'Fade {"from" if x == "intro" else "to"} &black'))
+            getattr(self, f"{x}_sound_label").setText(QCoreApplication.translate("AdvancedEditor", f'Preserve &sound (not recommended)'))
         
     def showAdvancedEditor(tableWidget):
         return AdvancedEditor(tableWidget).exec()

@@ -22,7 +22,6 @@ from .advanced_editor import AdvancedEditor
 from .advanced_options import AdvancedOptions
 from .progress_window import ProgressWindow
 import ffmpeg
-from ._ffmpegcolor import ffmpeg_color
 import enum
 import kbputils
 import io
@@ -916,7 +915,16 @@ class Ui_MainWindow(QMainWindow):
         #self.gridLayout.addWidget(
         #    self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
         self.gridLayout.addWidget(
-            self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")))), gridRow, 1, 1, 2)
+            self.bind("abitrateBox", 
+                QSpinBox(
+                    minimum=32,
+                    maximum=320,
+                    singleStep=4,
+                    suffix=" k",
+                    #sizePolicy=QSizePolicy(
+                    #    QSizePolicy.Maximum,
+                    #    QSizePolicy.Maximum)
+                    )), gridRow, 1, 1, 2)
         self.abitrateLabel.setBuddy(self.abitrateBox)
 
         self.containerBox.currentTextChanged.connect(self.updateCodecs)
@@ -1178,7 +1186,7 @@ class Ui_MainWindow(QMainWindow):
             "video/lossless": check2bool(self.lossless),
             "video/quality": self.quality.value(),
             "video/audio_codec_index": self.acodecBox.currentIndex(),
-            "video/audio_bitrate": self.abitrateBox.text(),
+            "video/audio_bitrate_kb": self.abitrateBox.value(),
             "kbp2video/relative_path": check2bool(self.relative),
             "kbp2video/output_dir": self.outputDir.text(),
             "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
@@ -1240,7 +1248,19 @@ class Ui_MainWindow(QMainWindow):
         self.lossless.setCheckState(bool2check(settings.value("video/lossless", type=bool, defaultValue=False)))
         self.quality.setValue(settings.value("video/quality", type=int, defaultValue=23))
         self.acodecBox.setCurrentIndex(settings.value("video/audio_codec_index", type=int, defaultValue=0))
-        self.abitrateBox.setText(settings.value("video/audio_bitrate", type=str, defaultValue=""))
+
+        # transition from previous str type
+        if settings.contains("video/audio_bitrate") and not settings.contains("video/audio_bitrate_kb"):
+            old_bitrate = settings.value("video/audio_bitrate", type=str, defaultValue="")
+            try:
+                new_bitrate = int(old_bitrate[:-1]) if old_bitrate.endswith('k') else int(old_bitrate)/1000
+            except:
+                new_bitrate = 256
+            new_bitrate=max(32, new_bitrate)
+            settings.remove("video/audio_bitrate")
+            settings.setValue("video/audio_bitrate_kb", new_bitrate)
+
+        self.abitrateBox.setValue(settings.value("video/audio_bitrate_kb", type=int, defaultValue=256))
         self.relative.setCheckState(bool2check(settings.value("kbp2video/relative_path", type=bool, defaultValue=True)))
         self.outputDir.setText(settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
         self.skipBackgrounds.setCheckState(bool2check(settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
@@ -1296,13 +1316,6 @@ class Ui_MainWindow(QMainWindow):
     def vidFile(self, kbp):
         filename = os.path.basename(kbp)
         return self.resolved_output_dir(kbp) + "/" + filename[:-4] + "." + self.containerBox.currentText()
-
-    def audioffmpegBitrate(self):
-        if self.acodecBox.currentText() == 'flac':
-            return {}
-        # TODO: Good defaults based on format
-        else:
-            return {"audio_bitrate": self.abitrateBox.text() or '256k'}
 
     def get_aspect_ratio(self):
         text = self.aspectRatioBox.currentText()
@@ -1399,21 +1412,14 @@ class Ui_MainWindow(QMainWindow):
                 continue
             self.statusbar.showMessage(f"Converting file {row+1} of {self.tableWidget.rowCount()} ({kbp})")
             signals.progress.emit(row, self.tableWidget.rowCount(), kbp, 0, 0)
-            background_type = None
             if not background:
-                pass
+                background_type = 0
+                background = default_bg
             elif background.startswith("color:"):
                 background = background[6:].strip(" #")
                 background_type = 0
-            # gif should be treated as video
-            elif (mimename := self.filedrop.mimedb.mimeTypeForFile(background).name()).startswith('video/') or mimename == 'image/gif':
-                background_type = 2
-            elif mimename.startswith('image/'):
+            else:
                 background_type = 1
-            # bad mime type (not image/video or nonexistant file), or no background specified
-            if background_type == None:
-                background_type = 0
-                background = default_bg
 
             assfile = self.assFile(kbp)
 
@@ -1423,27 +1429,14 @@ class Ui_MainWindow(QMainWindow):
                     kbp_obj = KBPASSWrapper(kbp_obj)
                 except:
                     conversion_errors = True
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info', 
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Failed to process file"),
-                    #    Q_ARG(str, f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
                     signals.error.emit(f"Failed to process file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
             if hasattr(kbp_obj, "kbp_path"):
-                print("Converting the new way")
                 print(kbputils_options)
                 try:
                     data = kbp_obj.ass_data(**kbputils_options)
                 except:
                     conversion_errors = True
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info', 
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Failed to process kbp"),
-                    #    Q_ARG(str, f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}"))
                     signals.error.emit(f"Failed to process .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
             else: # kbp_obj is a KBPASSWrapper with a .ass file
@@ -1462,12 +1455,6 @@ class Ui_MainWindow(QMainWindow):
                     os.mkdir(outdir)
                 except:
                     conversion_errors = True
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info', 
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Failed to create output folder"),
-                    #    Q_ARG(str, f"Failed to create missing output folder\n{outdir}\n\nError Output:\n{traceback.format_exc()}"))
                     signals.error.emit(f"Failed to create output folder\n{outdir}\nassociated with .kbp file\n{kbp}\n\nError Output:\n{traceback.format_exc()}", True)
                     continue
 
@@ -1502,190 +1489,50 @@ class Ui_MainWindow(QMainWindow):
             output_options = {}
             base_assfile = os.path.basename(assfile)
 
+            if (container := self.containerBox.currentText()) == 'mkv':
+                container = 'matroska'
+
+            # Retrieve the enabled intro/outro parameters, excluding the X_enabled keys themselves
+            advanced_params = {k: v for k, v in advanced.items() if (
+                        (k.startswith('intro_') and advanced['intro_enable']) or 
+                        (k.startswith('outro') and advanced['outro_enable'])) 
+                    and not k.endswith('_enable')}
+
+            converter = kbputils.VideoConverter(
+                        assfile,
+                        self.vidFile(kbp),
+                        preview = True,
+                        audio_file = audio,
+                        aspect_ratio = kbputils.Ratio(*ratio),
+                        target_x = resolution.split('x')[0],
+                        target_y = resolution.split('x')[1],
+                        **({"background_color": background} if background_type == 0 else {"background_media": background}),
+                        loop_background_video = check2bool(self.loopBGBox),
+                        media_container = container,
+                        video_codec = self.vcodecBox.currentText(),
+                        audio_codec = self.acodecBox.currentText(),
+                        audio_bitrate = self.abitrateBox.value(),
+                        **advanced_params,
+                        output_options = {
+                                "pix_fmt": "yuv420p",
+                                "hide_banner": None,
+                                "progress": "-",
+                                "loglevel": "warning"
+                            }
+                    )
+
+            # This is going to be a slight regression in error reporting for now,
+            # as kbputils doesn't have as much explicit error handling yet
             try:
-                song_length_str = ffmpeg.probe(audio)['format']['duration']
-                song_length_ms = int(float(song_length_str) * 1000)
+                ffmpeg_cmdinfo = converter.run()
             except:
                 conversion_errors = True
-                #QMetaObject.invokeMethod(
-                #    self,
-                #    'info',
-                #    Qt.AutoConnection,
-                #    Q_ARG(str, "Unable to process audio"),
-                #    Q_ARG(str, f"Unable to process audio file\n{audio}\n{traceback.format_exc()}"))
-                signals.error.emit(f"Skipped {kbp}:\nUnable to process audio file\n{audio}\n{traceback.format_exc()}", True)
+                signals.error.emit(f"Skipped {kbp}:\nUnable to generate ffmpeg command\n{traceback.format_exc()}", True)
                 continue
 
-            if background_type == 0:
-                background_video = ffmpeg.input(f"color=color={background}:r=60:s={resolution}", f="lavfi", t=song_length_str)
-                bg_size = QSize(*(int(x) for x in resolution.split('x')))
-            elif background_type == 1:
-                bg_size = QImage(background).size()
-                background_video = ffmpeg.input(background, loop=1, framerate=60, t=song_length_str)
-            elif background_type == 2:
-                # Pull the dimensions of the first video stream found in the file
-                try:
-                    bginfo = ffmpeg.probe(background)
-                except:
-                    conversion_errors = True
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info',
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Unable to process background video"),
-                    #    Q_ARG(str, f"Unable to determine the resolution of file\n{background}\n{traceback.format_exc()}"))
-                    signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
-                    continue
-                bg_size = next(QSize(x['width'],x['height']) for x in bginfo['streams'] if x['codec_type'] == 'video')
-
-                if check2bool(self.loopBGBox):
-                    background_video = ffmpeg.input(background, stream_loop=-1, t=song_length_str).video
-                else:
-                    bgv_length_ms = int(float(bginfo['format']['duration']) * 1000)
-                    background_video = ffmpeg.input(background).video
-                    # If the background video is shorter than the audio (and possibly subtitle), repeat the last frame
-                    if bgv_length_ms < song_length_ms:
-                        background_video = background_video.filter_(
-                                "tpad",
-                                stop_mode="clone",
-                                stop_duration=str(song_length_ms-bgv_length_ms)+"ms",
-                            )
-                    else:
-                        song_length_ms = bgv_length_ms
-
-            ### Note: past this point, song_length_ms represents the confirmed output file duration rather than just the audio length
-
-            to_concat = [None, None]
-            concat_length = 0
-            for x in ("intro", "outro"):
-                if f"{x}_enable" in advanced and advanced[f"{x}_enable"]:
-                    # TODO: alpha, sound?
-                    opts = {}
-                    if self.filedrop.mimedb.mimeTypeForFile(advanced[f"{x}_file"]).name().startswith('image/'):
-                        opts["loop"]=1
-                        opts["framerate"]=60
-                    # TODO skip scale if matching?
-                    # TODO set x/y if mismatched aspect ratio?
-                    overlay = ffmpeg.input(advanced[f"{x}_file"], t=str(advanced[f"{x}_length"])+"ms", **opts).filter_(
-                        "scale", s=f"{bg_size.width()}x{bg_size.height()}")
-                    if x == "outro" and not advanced["outro_concat"]:
-                        leadin = ffmpeg.input(f"color=color=000000:r=60:s={bg_size.width()}x{bg_size.height()}", f="lavfi", t=str(song_length_ms - advanced[f"{x}_length"])+"ms")
-                        overlay = leadin.concat(overlay)
-                    for y in ("In", "Out"):
-                        if advanced[f"{x}_fade{y}"]:
-                            fade_settings = {}
-                            if not advanced[f"{x}_concat"] and (not advanced[f"{x}_black"] or (x, y) == ("intro", "Out") or (x, y) == ("outro", "In")):
-                                fade_settings["alpha"] = 1
-                            if x == "intro" or advanced["outro_concat"]:
-                                if y == "In":
-                                    fade_settings["st"] = 0
-                                else:
-                                    fade_settings["st"] = (advanced[f"{x}_length"] - advanced[f"{x}_fadeOut"]) / 1000 # According to manpage this has to be in seconds
-                            else:
-                                if y == "Out":
-                                    fade_settings["st"] = (song_length_ms - advanced[f"{x}_fadeOut"]) / 1000
-                                else:
-                                    fade_settings["st"] = (song_length_ms - advanced[f"{x}_length"]) / 1000
-                            overlay = overlay.filter_("fade", t=y.lower(), d=(advanced[f"{x}_fade{y}"] / 1000), **fade_settings)
-                    if advanced[f"{x}_concat"]:
-                        to_concat[0 if x == "intro" else 1] = overlay
-                        concat_length += advanced[f"{x}_length"]
-                    else:
-                        background_video = background_video.overlay(overlay, eof_action=("pass" if x == "intro" else "repeat"))
-
-            audio_stream = ffmpeg.input(audio).audio
-            if background_type == 1 or background_type == 2:
-                if not bg_size:
-                    #QMetaObject.invokeMethod(
-                    #    self,
-                    #    'info',
-                    #    Qt.AutoConnection,
-                    #    Q_ARG(str, "Unsupported Background file"),
-                    #    Q_ARG(str, f"Unable to determine the resolution of file\n{background}"))
-                    signals.error.emit(f"Skipped {kbp}:\nUnable to determine the resolution of background file\n{background}\n{traceback.format_exc()}", True)
-                    continue
-                #if self.overrideBGResolution.checkState == Qt.Checked and not unsupported_message:
-                #    #QMetaObject.invokeMethod(
-                #    #    self,
-                #    #    'info',
-                #    #    Qt.AutoConnection,
-                #    #    Q_ARG(str, "Unsupported Option"),
-                #    #    Q_ARG(str, f"Override background resolution option not supported yet!"))
-                #    signals.error.emit(f"Unsupported option Override Background selected, ignoring", False)
-                #    unsupported_message = True
-
-            bg_ratio = fractions.Fraction(bg_size.width(), bg_size.height())
-            ass_ratio = fractions.Fraction(width, border and 216 or 192)
-            if bg_ratio > ass_ratio:
-                # letterbox sides
-                ass_size = QSize(round(bg_size.height() * ass_ratio), bg_size.height())
-                # ass_move = f":x={round((bg_size.width() - ass_size.width())/2)}"
-                ass_move = {"x": round((bg_size.width() - ass_size.width())/2)}
-            elif bg_ratio < ass_ratio:
-                # letterbox top/bottom
-                ass_size = QSize(bg_size.width(), round(bg_size.width() / ass_ratio))
-                # ass_move = f":y={round((bg_size.height() - ass_size.height())/2)}"
-                ass_move = {"y": round((bg_size.height() - ass_size.height())/2)}
-            else:
-                ass_size = bg_size
-                # ass_move = ""
-                ass_move = {}
-
-            if ass_move:
-                filtered_video = background_video.overlay(
-                    ffmpeg_color(color="000000@0", r=60, s=f"{ass_size.width()}x{ass_size.height()}")
-                        .filter_("format", "rgba")
-                        .filter_("ass", base_assfile, alpha=1),
-                    eof_action="pass",
-                    **ass_move
-                )
-            else:
-                filtered_video = background_video.filter_("ass", base_assfile)
-
-            ## Should no longer need now that background duration is being set with song_length
-            #if background_type == 0 or background_type == 1:
-            #    output_options["shortest"] = None
-
-            # TODO: should pix_fmt be configurable or change default based on codec?
-
-            if to_concat[0]:
-                filtered_video = to_concat[0].concat(filtered_video)
-                audio_stream = ffmpeg.input("anullsrc", f="lavfi", t=str(advanced["intro_length"])+"ms").audio.concat(audio_stream, v=0, a=1)
-            if to_concat[1]:
-                filtered_video = filtered_video.concat(to_concat[1])
-                audio_stream = audio_stream.concat(ffmpeg.input("anullsrc", f="lavfi", t=str(advanced["outro_length"])+"ms").audio, v=0, a=1)
-
-            output_options.update(self.audioffmpegBitrate())
-
-            if check2bool(self.lossless):
-                if self.vcodecBox.currentText() == "libvpx-vp9":
-                    output_options["lossless"]=1
-                elif self.vcodecBox.currentText() == "libx265":
-                    output_options["x265-params"]="lossless=1"
-                else:
-                    output_options["crf"]=0
-            else:
-                output_options["crf"]=self.quality.value()
-
-            if self.vcodecBox.currentText() == "libvpx-vp9":
-                output_options["video_bitrate"] = 0 # Required for the format to use CRF only
-                output_options["row-mt"] = 1 # Speeds up encode for most multicore systems
-
-            output_options.update({
-                "pix_fmt": "yuv420p",
-                "c:a": self.acodecBox.currentText(),
-                "c:v": self.vcodecBox.currentText(),
-                "hide_banner": None,
-                "progress": "-",
-                "loglevel": "warning"
-            })
-            # TODO: determine if it's best to leave this as a QProcess, or use ffmpeg.run() and have it POpen itself
-            ffmpeg_options = ffmpeg.output(filtered_video, audio_stream, self.vidFile(kbp), **output_options).overwrite_output().get_args()
-            print(f'cd "{os.path.dirname(assfile)}"')
-            print("ffmpeg" + " " + " ".join(f'"{x}"' for x in ffmpeg_options))
-            q = QProcess(program="ffmpeg", arguments=ffmpeg_options, workingDirectory=os.path.dirname(assfile))
+            q = QProcess(program=ffmpeg_cmdinfo['args'][0], arguments=ffmpeg_cmdinfo['args'][1:], workingDirectory=ffmpeg_cmdinfo['cwd'])
             q.setReadChannel(QProcess.StandardOutput)
-            ffmpeg_processes.append((kbp, song_length_ms + concat_length, q))
+            ffmpeg_processes.append((kbp, ffmpeg_cmdinfo['length'], q))
 
         for row, (kbp, song_length_ms, q) in enumerate(ffmpeg_processes):
             q.start()
@@ -1795,9 +1642,7 @@ class Ui_MainWindow(QMainWindow):
         self.abitrateLabel.setText(QCoreApplication.translate(
             "MainWindow", "Audio &Bitrate", None))
         self.abitrateLabel.setToolTip(QCoreApplication.translate(
-            "MainWindow", "Enter a number in bits per second, or suffixed with a k for kilobits per second.", None))
-        self.abitrateBox.setPlaceholderText(QCoreApplication.translate(
-            "MainWindow", "Leave blank for default", None))
+            "MainWindow", "Enter a number for audio bitrate in kilobits per second.", None))
         #self.overrideBGLabel.setText(QCoreApplication.translate(
         #    "MainWindow", "Override background", None))
         #self.overrideBGLabel.setToolTip(QCoreApplication.translate(
