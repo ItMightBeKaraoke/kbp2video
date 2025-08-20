@@ -866,9 +866,9 @@ class Ui_MainWindow(QMainWindow):
 
         gridRow += 1
         self.containerOptions = {
-            "mp4": (("h264", "libvpx-vp9", "libx265", "libaom-av1"), ("aac", "mp3", "libopus")),
-            "mkv": (("libvpx-vp9", "h264", "libx265", "libaom-av1"), ("flac", "libopus", "aac", "mp3")),
-            "webm": (("libvpx-vp9", "libaom-av1"), ("libopus",)),
+            "mp4": (("h264", "libvpx-vp9", "libx265", "libsvtav1"), ("aac", "mp3", "libopus")),
+            "mkv": (("libvpx-vp9", "h264", "libx265", "libsvtav1"), ("flac", "libopus", "aac", "mp3")),
+            "webm": (("libvpx-vp9", "libsvtav1"), ("libopus",)),
         }
         self.gridLayout.addWidget(
             self.bind("containerLabel", ClickLabel()), gridRow, 0)
@@ -1510,6 +1510,7 @@ class Ui_MainWindow(QMainWindow):
                         loop_background_video = check2bool(self.loopBGBox),
                         media_container = container,
                         video_codec = self.vcodecBox.currentText(),
+                        video_quality = 0 if check2bool(self.lossless) else self.quality.value(),
                         audio_codec = self.acodecBox.currentText(),
                         audio_bitrate = self.abitrateBox.value(),
                         **advanced_params,

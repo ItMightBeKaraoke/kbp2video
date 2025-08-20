@@ -4,7 +4,7 @@ dynamic = ["version"]
 dependencies = [
     "PySide6-Essentials",
     "ffmpeg-python",
-    "kbputils >= 0.2.2",
+    "kbputils >= 0.2.4",
     "lastversion"
 ]
 [project.scripts]
