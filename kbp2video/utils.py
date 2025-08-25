@@ -1,6 +1,12 @@
+import sys
+import io
+
 from PySide6.QtWidgets import QCheckBox, QLabel
 from PySide6.QtCore import QMimeDatabase, Qt
-import sys
+
+import kbputils
+
+mimedb = QMimeDatabase()
 
 # Minor enhancement to QLabel - if it has a buddy configured, that will not
 # only allow a keyboard mnemonic to be associated, but will also focus the buddy
@@ -19,8 +25,6 @@ class ClickLabel(QLabel):
                 self.buddyMethod(b)
             else:
                 b.setFocus(Qt.MouseFocusReason)
-
-mimedb = QMimeDatabase()
 
 def check2bool(state_or_checkbox):
     if 'checkState' in dir(state_or_checkbox):
@@ -48,3 +52,35 @@ if sys.platform == "win32":
     subprocess.Popen.__init__ = _wrapped_popen_init
 
     print("done")
+
+# TODO: Possibly pull PlayRes? from .ass to letterbox
+class KBPASSWrapper:
+    def __init__(self, path):
+        if path.casefold().endswith(".ass"):
+            self.ass_path = path
+            # raise correct exception we would get later from opening
+            with open(path, "r") as _:
+                pass
+        else:
+            self.kbp_path = path
+            self.kbp_obj = kbputils.KBPFile(path)
+    def ass_data(self, **kwargs):
+        if hasattr(self,"kbp_path"):
+            # Re-read file in case it changed on disk
+            self.kbp_obj = kbputils.KBPFile(self.kbp_path)
+
+            tmp = io.StringIO()
+            kbputils.AssConverter(self.kbp_obj,**kwargs).ass_document().dump_file(tmp)
+            return tmp.getvalue()
+        else:
+            # Added for symmetry or something, but...
+            print("Probably shouldn't reach this code")
+            f = QFile(self.ass_path)
+            if not f.open(QIODevice.ReadOnly | QIODevice.Text):                                                                                  
+                raise IOError(f"Unable to open {self.ass_path}")
+            res = QTextStream(f).readAll()
+            f.close()
+            return res
+
+    def __str__(self):
+        return self.kbp_path if hasattr(self,"kbp_path") else self.ass_path
