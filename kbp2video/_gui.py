@@ -23,6 +23,7 @@ import kbputils
 from .utils import ClickLabel, bool2check, check2bool, KBPASSWrapper
 from .track_table import DropLabel, TrackTable, TrackTableColumn
 from .advanced_options import AdvancedOptions
+from .advanced_editor import AdvancedEditor
 from .progress_window import ProgressWindow
 from . import __version__
 
