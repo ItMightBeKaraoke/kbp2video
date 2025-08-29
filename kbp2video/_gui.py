@@ -12,7 +12,7 @@ import traceback
 
 from PySide6.QtCore import QObject, QRunnable, QFile, QThreadPool, Q_ARG, QUrl, Q_RETURN_ARG, QDir, QEvent, QIODevice, QSettings, QSize, QRect, QMetaObject, QMargins, QCoreApplication, QTextStream, QProcess, QRegularExpression, Signal, Slot, QCommandLineParser
 from PySide6.QtGui import QColor, QKeySequence, Qt, QDesktopServices, QRegularExpressionValidator
-from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox
+from PySide6.QtWidgets import QVBoxLayout, QFileDialog, QHBoxLayout, QSlider, QLabel, QLineEdit, QDoubleSpinBox, QSpacerItem, QInputDialog, QStackedWidget, QComboBox, QGridLayout, QTableWidgetItem, QPushButton, QSpinBox, QHeaderView, QApplication, QMessageBox, QMainWindow, QLayout, QWidget, QMenuBar, QScrollArea, QSizePolicy, QStatusBar, QColorDialog, QCheckBox, QTabWidget
 import PySide6 # __version__
 
 import ffmpeg
@@ -131,6 +131,9 @@ class Ui_MainWindow(QMainWindow):
         self.editmenu.addAction("&Open/Edit Selected Files", QKeySequence.Open, self.remove_files_button)
         self.editmenu.addAction("&Intro/Outro Settings", Qt.CTRL | Qt.Key_Return, self.advanced_button)
         self.editmenu.addAction("&Lyrics Import Options", self.advanced_options)
+        self.viewmenu = self.menubar.addMenu("&View")
+        self.layout_setting = self.viewmenu.addAction("&Old Layout", self.drawMainSettings)
+        self.layout_setting.setCheckable(True)
         self.helpmenu = self.menubar.addMenu("&Help")
         self.helpmenu.addAction("&About", lambda: QMessageBox.about(self, "About kbp2video", f"kbp2video version: {__version__}\n\nUsing:\nkbputils version: {kbputils.__version__}\nPySide6 version: {PySide6.__version__}\nffmpeg version: {ffmpeg_version}"))
         self.helpmenu.addAction("&Check for Updates…", lambda: UpdateBox.update_check(self))
@@ -148,6 +151,9 @@ class Ui_MainWindow(QMainWindow):
         QCoreApplication.setOrganizationDomain("itmightbekaraoke.com")
 
         self.settings = QSettings()
+
+        # Need to retrieve this one early because it affects the entire UI
+        self.layout_setting.setChecked(self.settings.value("kbp2video/old_layout", type=bool, defaultValue=False))
 
         ##################### Left pane #####################
 
@@ -226,296 +232,31 @@ class Ui_MainWindow(QMainWindow):
 
         ##################### Right pane #####################
 
+
         self.bind("rightPane", QWidget(
-            layout=self.bind("gridLayout", QGridLayout())
+            layout=self.bind("outerGridLayout", QGridLayout())
         ))
-        self.horizontalLayout.addWidget(
-            self.bind("rightPaneScroll", QScrollArea(
-                widget=self.rightPane,
-                widgetResizable=True,
-                sizePolicy=QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred),
-                horizontalScrollBarPolicy=Qt.ScrollBarAlwaysOff
-            )),
-            stretch=0
-        )
 
-        gridRow = 0
-        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
-        self.gridLayout.setRowStretch(gridRow, 10)
+        self.horizontalLayout.addWidget(self.rightPane, stretch=0)
 
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("assDivider", QLabel(
-            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+        self.drawMainSettings()
 
-        gridRow += 1
-        self.aspectRatioOptions = [
-            "CDG, borders (25:18, True)",
-            "Wide, borders (16:9, True)",
-            "Standard, borders (4:3, True)",
-            "CDG no border (3:2, False)",
-            "Wide no border (16:9, False)",
-        ]
-        self.gridLayout.addWidget(
-            self.bind("aspectLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("aspectRatioBox",QComboBox(editable=True, insertPolicy=QComboBox.NoInsert)),gridRow, 1, 1, 2)
-                    # sizePolicy=QSizePolicy(
-                    #     QSizePolicy.Maximum,
-                    #     QSizePolicy.Maximum))),
-        self.aspectRatioBox.addItems(self.aspectRatioOptions)
-        self.aspectLabel.setBuddy(self.aspectRatioBox)
-        #self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind(
-                "fadeIn",
-                QSpinBox(
-                    minimum=0,
-                    maximum=5000,
-                    singleStep=10,
-                    suffix=" ms",
-                    #value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
-                    sizePolicy=QSizePolicy(
-                        QSizePolicy.Maximum,
-                        QSizePolicy.Maximum))),
-            gridRow,
-            1)
-        self.fades.setBuddy(self.fadeIn)
-        self.gridLayout.addWidget(
-            self.bind(
-                "fadeOut",
-                QSpinBox(
-                    minimum=0,
-                    maximum=5000,
-                    singleStep=10,
-                    suffix=" ms",
-                    #value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
-                    sizePolicy=QSizePolicy(
-                        QSizePolicy.Maximum,
-                        QSizePolicy.Maximum))),
-            gridRow,
-            2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("overrideOffset", QCheckBox(stateChanged=self.offset_check_box)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("overrideOffsetLabel", ClickLabel(buddy=self.overrideOffset, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind(
-                "offset",
-                QDoubleSpinBox(
-                    minimum=-5,
-                    maximum=180,
-                    singleStep=0.05,
-                    suffix=" s",
-                    #value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
-                    enabled=False
-                    )),
-            gridRow,
-            1)
-        self.gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddy=self.offset)), gridRow, 0)
-
-        #self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
-
-        gridRow += 1
-        #self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox(checkState=Qt.Checked if self.settings.value("subtitle/transparent_bg", type=bool, defaultValue=True) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("transparencyBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("ktBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("ktLabel", ClickLabel(buddy=self.ktBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("spacingBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("spacingLabel", ClickLabel(buddy=self.spacingBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
-        self.gridLayout.addWidget(
-            self.bind("overflowLabel", ClickLabel(buddy=self.overflowBox)), gridRow, 0)
-        self.overflowBox.addItems(["no wrap","even split","top split","bottom split"])
-
-        gridRow += 1
-        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
-        self.gridLayout.setRowStretch(gridRow, 10)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("ffmpegDivider", ClickLabel(
-            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
-            clicked=self.color_apply_button, enabled=False)), gridRow, 0)
-        self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
-            text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
-
-        #self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
-
-        # TODO: Find a better way to set this to a reasonable width for 7 characters
-        # minimumSizeHint is enough for about 3
-        # sizeHint is enough for about 12
-        self.colorText.setFixedWidth(
-            self.colorText.minimumSizeHint().width() * 7 / 3)
-
-        self.gridLayout.addWidget(self.bind("colorChooseButton", QPushButton(
-            clicked=self.color_choose_button)), gridRow, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("loopBGBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("loopBGLabel", ClickLabel(buddy=self.loopBGBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.resolutionOptions = [
-            "1500x1080",
-            "1920x1080 (1080p)",
-            "3000x2160",
-            "3840x2160 (4K)",
-            "1000x720",
-            "1280x720 (720p)",
-            "640x480"
-        ]
-        self.gridLayout.addWidget(
-            self.bind("resolutionLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("resolutionBox", QComboBox(editable=True)), gridRow, 1, 1, 2)
-        self.resolutionBox.addItems(self.resolutionOptions)
-        #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
-        self.resolutionLabel.setBuddy(self.resolutionBox)
+        self.outerGridLayout.addWidget(
+            self.bind("resetButton", QPushButton(clicked=self.reset_settings, sizePolicy=QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum))), 1, 0, 1, 3, alignment=Qt.AlignCenter)
 
         #gridRow += 1
-        ## TODO: implement feature
-        #self.gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(enabled=False)), gridRow, 0, alignment=Qt.AlignRight)
-        #self.gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.containerOptions = {
-            "mp4": (("h264", "libvpx-vp9", "libx265", "libsvtav1"), ("aac", "mp3", "libopus")),
-            "mkv": (("libvpx-vp9", "h264", "libx265", "libsvtav1"), ("flac", "libopus", "aac", "mp3")),
-            "webm": (("libvpx-vp9", "libsvtav1"), ("libopus",)),
-        }
-        self.gridLayout.addWidget(
-            self.bind("containerLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("containerBox", QComboBox()), gridRow, 1, 1, 2)
-        self.containerBox.addItems(self.containerOptions.keys())
-        #self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
-        self.containerLabel.setBuddy(self.containerBox)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("vcodecLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("vcodecBox", QComboBox()), gridRow, 1, 1, 2)
-        #self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
-        #self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
-        self.vcodecLabel.setBuddy(self.vcodecBox)
-
-        gridRow += 1
-        # TODO: implement feature
-        self.gridLayout.addWidget(self.bind("lossless", QCheckBox(stateChanged=self.lossless_check_box)), gridRow, 0, alignment=Qt.AlignRight)
-        #self.gridLayout.addWidget(self.bind("lossless", QCheckBox(checkState=Qt.Checked if self.settings.value("video/lossless", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("losslessLabel", ClickLabel(buddy=self.lossless, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("qualityLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, tickInterval=5, pageStep=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
-        self.qualityLabel.setBuddy(self.quality)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("acodecLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("acodecBox", QComboBox()), gridRow, 1, 1, 2)
-        self.acodecBox.addItems(self.containerOptions[self.containerBox.currentText()][1])
-        #self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
-        self.acodecLabel.setBuddy(self.acodecBox)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("abitrateLabel", ClickLabel()), gridRow, 0)
-        #self.gridLayout.addWidget(
-        #    self.bind("abitrateBox", QLineEdit(validator=QRegularExpressionValidator(QRegularExpression(r"^\d*[1-9]\d*k?$")), text=self.settings.value("video/audio_bitrate", type=str, defaultValue=""))), gridRow, 1, 1, 2)
-        self.gridLayout.addWidget(
-            self.bind("abitrateBox", 
-                QSpinBox(
-                    minimum=32,
-                    maximum=320,
-                    singleStep=4,
-                    suffix=" k",
-                    #sizePolicy=QSizePolicy(
-                    #    QSizePolicy.Maximum,
-                    #    QSizePolicy.Maximum)
-                    )), gridRow, 1, 1, 2)
-        self.abitrateLabel.setBuddy(self.abitrateBox)
-
-        self.containerBox.currentTextChanged.connect(self.updateCodecs)
+        #gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        #gridLayout.setRowStretch(gridRow, 30)
 
         #gridRow += 1
-        #self.label_2 = QLabel()
-        #self.label_2.setObjectName("label_2")
-
-        #self.gridLayout.addWidget(self.label_2, gridRow, 0)
-
-        gridRow += 1
-        self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
-        self.gridLayout.setRowStretch(gridRow, 10)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("generalDivider", ClickLabel(
-            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
-
-        gridRow += 1
-        # TODO: implement feature
-        self.gridLayout.addWidget(self.bind("relative", QCheckBox(stateChanged=self.relative_check_box)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("relativeLabel", ClickLabel(buddy=self.relative, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("outputDirLabel", ClickLabel()), gridRow, 0)
-        self.gridLayout.addWidget(
-            self.bind("outputDir", QLineEdit()), gridRow, 1)
-        self.gridLayout.addWidget(
-            self.bind("outputDirButton", QPushButton(clicked=self.output_dir)), gridRow, 2)
-        self.outputDirLabel.setBuddy(self.outputDir)
-
-        gridRow += 1
-        #self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox(checkState=Qt.Checked if self.settings.value("video/ignore_bg_files_drag_drop", type=bool, defaultValue=False) else Qt.Unchecked)), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addWidget(self.bind("checkUpdates", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
-        self.gridLayout.addWidget(self.bind("checkUpdatesLabel", ClickLabel(buddy=self.checkUpdates, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
-
-        gridRow += 1
-        self.gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
-        self.gridLayout.setRowStretch(gridRow, 10)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("resetButton", QPushButton(clicked=self.reset_settings, sizePolicy=QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum))), gridRow, 0, 1, 3, alignment=Qt.AlignCenter)
-
-        gridRow += 1
-        self.gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
-        self.gridLayout.setRowStretch(gridRow, 30)
-
-        gridRow += 1
-        self.gridLayout.addWidget(
-            self.bind("convertAssButton", QPushButton(enabled=False, clicked=self.runAssConversion)), gridRow, 0, 1, 1)
-        self.gridLayout.addWidget(
-            self.bind("convertButton", QPushButton(enabled=False, clicked=self.runConversion)), gridRow, 1, 1, 2)
+        self.outerGridLayout.addWidget(
+            self.bind("convertAssButton", QPushButton(enabled=False, clicked=self.runAssConversion)), 2, 0, 1, 1)
+        self.outerGridLayout.addWidget(
+            self.bind("convertButton", QPushButton(enabled=False, clicked=self.runConversion)), 2, 1, 1, 2)
 
         self.horizontalLayout.addItem(QSpacerItem(
             20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
-        self.loadSettings()
 
         self.retranslateUi()
 
@@ -551,6 +292,315 @@ class Ui_MainWindow(QMainWindow):
             delattr(self, "preload_files")
 
     # setupUi
+
+    def drawMainSettings(self):
+        tabbed_ui = not self.layout_setting.isChecked()
+        if tabbed_ui:
+            self.bind("mainSettings", QTabWidget())
+        else:
+            self.bind("mainSettings", QWidget(
+                layout=self.bind("gridLayout", QGridLayout())
+            ))
+            gridLayout = self.gridLayout
+
+        redrawing = False
+
+        if hasattr(self, "rightPaneScroll"):
+            self.rightPaneScroll.setWidget(self.mainSettings)
+            redrawing = True
+        else:
+            self.outerGridLayout.addWidget(
+                self.bind("rightPaneScroll", QScrollArea(
+                    widget=self.mainSettings,
+                    widgetResizable=True,
+                    sizePolicy=QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred),
+                    horizontalScrollBarPolicy=Qt.ScrollBarAlwaysOff
+                #)), 0, 0, 10, 3,
+                )), 0, 0, 1, 3
+            )
+        self.outerGridLayout.setRowStretch(0, 1)
+
+
+        gridRow = 0
+        if tabbed_ui:
+            # TODO: translate label names, add accelerator &
+            self.mainSettings.addTab(QWidget(
+                    layout=self.bind("assGridLayout", QGridLayout())
+                ), "Subtitle")
+            gridLayout = self.assGridLayout
+        else:
+            gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+            gridLayout.setRowStretch(gridRow, 10)
+            gridRow += 1
+
+        gridLayout.addWidget(self.bind("assDivider", QLabel(
+            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+
+        gridRow += 1
+        self.aspectRatioOptions = [
+            "CDG, borders (25:18, True)",
+            "Wide, borders (16:9, True)",
+            "Standard, borders (4:3, True)",
+            "CDG no border (3:2, False)",
+            "Wide no border (16:9, False)",
+        ]
+        gridLayout.addWidget(
+            self.bind("aspectLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("aspectRatioBox",QComboBox(editable=True, insertPolicy=QComboBox.NoInsert)),gridRow, 1, 1, 2)
+                    # sizePolicy=QSizePolicy(
+                    #     QSizePolicy.Maximum,
+                    #     QSizePolicy.Maximum))),
+        self.aspectRatioBox.addItems(self.aspectRatioOptions)
+        self.aspectLabel.setBuddy(self.aspectRatioBox)
+        #self.aspectRatioBox.setCurrentIndex(self.settings.value("subtitle/aspect_ratio_index", type=int, defaultValue=0))
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("fades", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind(
+                "fadeIn",
+                QSpinBox(
+                    minimum=0,
+                    maximum=5000,
+                    singleStep=10,
+                    suffix=" ms",
+                    #value=self.settings.value("subtitle/fade_in", type=int, defaultValue=50),
+                    sizePolicy=QSizePolicy(
+                        QSizePolicy.Maximum,
+                        QSizePolicy.Maximum))),
+            gridRow,
+            1)
+        self.fades.setBuddy(self.fadeIn)
+        gridLayout.addWidget(
+            self.bind(
+                "fadeOut",
+                QSpinBox(
+                    minimum=0,
+                    maximum=5000,
+                    singleStep=10,
+                    suffix=" ms",
+                    #value=self.settings.value("subtitle/fade_out", type=int, defaultValue=50),
+                    sizePolicy=QSizePolicy(
+                        QSizePolicy.Maximum,
+                        QSizePolicy.Maximum))),
+            gridRow,
+            2)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("overrideOffset", QCheckBox(stateChanged=self.offset_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("overrideOffsetLabel", ClickLabel(buddy=self.overrideOffset, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind(
+                "offset",
+                QDoubleSpinBox(
+                    minimum=-5,
+                    maximum=180,
+                    singleStep=0.05,
+                    suffix=" s",
+                    #value=self.settings.value("subtitle/offset", type=float, defaultValue=0.0),
+                    enabled=False
+                    )),
+            gridRow,
+            1)
+        gridLayout.addWidget(self.bind("offsetLabel", ClickLabel(buddy=self.offset)), gridRow, 0)
+
+        #self.offset_check_box(setState=Qt.Checked if self.settings.value("subtitle/override_offset", type=bool, defaultValue=False) else Qt.Unchecked)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("transparencyBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("transparencyLabel", ClickLabel(buddy=self.transparencyBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("ktBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("ktLabel", ClickLabel(buddy=self.ktBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("spacingBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("spacingLabel", ClickLabel(buddy=self.spacingBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("overflowBox", QComboBox()), gridRow, 1, 1, 2)
+        gridLayout.addWidget(
+            self.bind("overflowLabel", ClickLabel(buddy=self.overflowBox)), gridRow, 0)
+        self.overflowBox.addItems(["no wrap","even split","top split","bottom split"])
+
+        gridRow += 1
+        gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        gridLayout.setRowStretch(gridRow, 10)
+
+        if tabbed_ui:
+            # TODO: translate label names, add accelerator &
+            self.mainSettings.addTab(QWidget(
+                    layout=self.bind("ffmpegGridLayout", QGridLayout())
+                ), "Video")
+            gridLayout = self.ffmpegGridLayout
+            gridRow = 0
+        else:
+            gridRow += 1
+
+        gridLayout.addWidget(self.bind("ffmpegDivider", ClickLabel(
+            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
+            clicked=self.color_apply_button, enabled=False)), gridRow, 0)
+        gridLayout.addWidget(self.bind("colorText", QLineEdit(
+            text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
+
+        #self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
+
+        # TODO: Find a better way to set this to a reasonable width for 7 characters
+        # minimumSizeHint is enough for about 3
+        # sizeHint is enough for about 12
+        self.colorText.setFixedWidth(
+            self.colorText.minimumSizeHint().width() * 7 / 3)
+
+        gridLayout.addWidget(self.bind("colorChooseButton", QPushButton(
+            clicked=self.color_choose_button)), gridRow, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("loopBGBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("loopBGLabel", ClickLabel(buddy=self.loopBGBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.resolutionOptions = [
+            "1500x1080",
+            "1920x1080 (1080p)",
+            "3000x2160",
+            "3840x2160 (4K)",
+            "1000x720",
+            "1280x720 (720p)",
+            "640x480"
+        ]
+        gridLayout.addWidget(
+            self.bind("resolutionLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("resolutionBox", QComboBox(editable=True)), gridRow, 1, 1, 2)
+        self.resolutionBox.addItems(self.resolutionOptions)
+        #self.resolutionBox.setCurrentIndex(self.settings.value("video/output_resolution_index", type=int, defaultValue=0))
+        self.resolutionLabel.setBuddy(self.resolutionBox)
+
+        #gridRow += 1
+        ## TODO: implement feature
+        #gridLayout.addWidget(self.bind("overrideBGResolution", QCheckBox(enabled=False)), gridRow, 0, alignment=Qt.AlignRight)
+        #gridLayout.addWidget(self.bind("overrideBGLabel", ClickLabel(buddy=self.overrideBGResolution, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        self.containerOptions = {
+            "mp4": (("h264", "libvpx-vp9", "libx265", "libsvtav1"), ("aac", "mp3", "libopus")),
+            "mkv": (("libvpx-vp9", "h264", "libx265", "libsvtav1"), ("flac", "libopus", "aac", "mp3")),
+            "webm": (("libvpx-vp9", "libsvtav1"), ("libopus",)),
+        }
+        gridLayout.addWidget(
+            self.bind("containerLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("containerBox", QComboBox()), gridRow, 1, 1, 2)
+        self.containerBox.addItems(self.containerOptions.keys())
+        #self.containerBox.setCurrentIndex(self.settings.value("video/container_format_index", type=int, defaultValue=0))
+        self.containerLabel.setBuddy(self.containerBox)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("vcodecLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("vcodecBox", QComboBox()), gridRow, 1, 1, 2)
+        #self.vcodecBox.setCurrentIndex(self.settings.value("video/video_codec_index", type=int, defaultValue=0))
+        #self.vcodecBox.addItems(self.containerOptions[self.containerBox.currentText()][0])
+        self.vcodecLabel.setBuddy(self.vcodecBox)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("lossless", QCheckBox(stateChanged=self.lossless_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("losslessLabel", ClickLabel(buddy=self.lossless, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("qualityLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("quality", QSlider(Qt.Horizontal, minimum=10, maximum=40, invertedAppearance=True, invertedControls=True, tickInterval=5, pageStep=5, tickPosition=QSlider.TicksAbove)), gridRow, 1, 1, 2)
+        self.qualityLabel.setBuddy(self.quality)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("acodecLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("acodecBox", QComboBox()), gridRow, 1, 1, 2)
+        self.acodecBox.addItems(self.containerOptions[self.containerBox.currentText()][1])
+        #self.acodecBox.setCurrentIndex(self.settings.value("video/audio_codec_index", type=int, defaultValue=0))
+        self.acodecLabel.setBuddy(self.acodecBox)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("abitrateLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("abitrateBox", 
+                QSpinBox(
+                    minimum=32,
+                    maximum=320,
+                    singleStep=4,
+                    suffix=" k",
+                    )), gridRow, 1, 1, 2)
+        self.abitrateLabel.setBuddy(self.abitrateBox)
+
+        self.containerBox.currentTextChanged.connect(self.updateCodecs)
+
+
+        gridRow += 1
+        gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        gridLayout.setRowStretch(gridRow, 10)
+
+        if tabbed_ui:
+            # TODO: translate label names, add accelerator &
+            self.mainSettings.addTab(QWidget(
+                    layout=self.bind("generalGridLayout", QGridLayout())
+                ), "General")
+            gridLayout = self.generalGridLayout
+            gridRow = 0
+        else:
+            gridRow += 1
+
+        gridLayout.addWidget(self.bind("generalDivider", ClickLabel(
+            alignment=Qt.AlignCenter)), gridRow, 0, 1, 3)
+
+        gridRow += 1
+        # TODO: implement feature
+        gridLayout.addWidget(self.bind("relative", QCheckBox(stateChanged=self.relative_check_box)), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("relativeLabel", ClickLabel(buddy=self.relative, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(
+            self.bind("outputDirLabel", ClickLabel()), gridRow, 0)
+        gridLayout.addWidget(
+            self.bind("outputDir", QLineEdit()), gridRow, 1)
+        gridLayout.addWidget(
+            self.bind("outputDirButton", QPushButton(clicked=self.output_dir)), gridRow, 2)
+        self.outputDirLabel.setBuddy(self.outputDir)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("skipBackgrounds", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("skipBackgroundsLabel", ClickLabel(buddy=self.skipBackgrounds, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addWidget(self.bind("checkUpdates", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        gridLayout.addWidget(self.bind("checkUpdatesLabel", ClickLabel(buddy=self.checkUpdates, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
+        gridLayout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        gridLayout.setRowStretch(gridRow, 10)
+
+        #gridRow += 1
+        #gridLayout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding), gridRow, 0, 1, 3)
+        #gridLayout.setRowStretch(gridRow, 10)
+
+        #gridRow += 1
+
+        self.loadSettings()
+
+        if redrawing:
+            self.retranslateUi()
 
     def prompt_import_settings_file(self):
         file, _ = QFileDialog.getOpenFileName(self, "Import Settings File", filter="Settings (*.ini)")
@@ -719,6 +769,7 @@ class Ui_MainWindow(QMainWindow):
             "kbp2video/output_dir": self.outputDir.text(),
             "kbp2video/ignore_bg_files_drag_drop": check2bool(self.skipBackgrounds),
             "kbp2video/check_updates": check2bool(self.checkUpdates),
+            "kbp2video/old_layout": self.layout_setting.isChecked(),
             **{"lyricimport/" + x: Ui_MainWindow.lyricsettings[x] for x in Ui_MainWindow.lyricsettings},
         }
         for setting, value in to_save.items():
@@ -793,6 +844,9 @@ class Ui_MainWindow(QMainWindow):
         self.outputDir.setText(settings.value("kbp2video/output_dir", type=str, defaultValue="kbp2video"))
         self.skipBackgrounds.setCheckState(bool2check(settings.value("kbp2video/ignore_bg_files_drag_drop", type=bool, defaultValue=False)))
         self.checkUpdates.setCheckState(bool2check(settings.value("kbp2video/check_updates", type=bool, defaultValue=False)))
+        if file:
+            old_layout = self.layout_setting.isChecked()
+            self.layout_setting.setChecked(settings.value("kbp2video/old_layout", type=bool, defaultValue=False))
         Ui_MainWindow.lyricsettings = {
             "max_lines_per_page": 6,
             "min_gap_for_new_page": 1000,
@@ -806,6 +860,8 @@ class Ui_MainWindow(QMainWindow):
             Ui_MainWindow.lyricsettings[x] = settings.value("lyricimport/" + x, type=type(val), defaultValue=val)
         if not file:
             self.saveSettings()  # Save to disk any new defaults that were used
+        elif old_layout != self.layout_setting.isChecked():
+            self.drawMainSettings()
 
     def runAssConversion(self):
         self.saveSettings()
