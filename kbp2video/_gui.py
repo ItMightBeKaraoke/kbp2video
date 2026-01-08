@@ -824,15 +824,15 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("colorApplyButton", QPushButton(
             clicked=self.color_apply_button, enabled=False)), gridRow, 0)
         self.gridLayout.addWidget(self.bind("colorText", QLineEdit(
-            text="#000000", inputMask="\\#HHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
+            text="#000000", inputMask="\\#HHHHHHHH", styleSheet="color: #FFFFFF; background-color: #000000", textChanged=self.updateColor)), gridRow, 1)
 
         #self.updateColor(setColor=self.settings.value("video/background_color", type=str, defaultValue="#000000"))
 
-        # TODO: Find a better way to set this to a reasonable width for 7 characters
+        # TODO: Find a better way to set this to a reasonable width for 9 characters
         # minimumSizeHint is enough for about 3
         # sizeHint is enough for about 12
         self.colorText.setFixedWidth(
-            self.colorText.minimumSizeHint().width() * 7 / 3)
+            self.colorText.minimumSizeHint().width() * 9 / 3)
 
         self.gridLayout.addWidget(self.bind("colorChooseButton", QPushButton(
             clicked=self.color_choose_button)), gridRow, 2)
@@ -869,6 +869,7 @@ class Ui_MainWindow(QMainWindow):
             "mp4": (("h264", "libvpx-vp9", "libx265", "libsvtav1"), ("aac", "mp3", "libopus")),
             "mkv": (("libvpx-vp9", "h264", "libx265", "libsvtav1"), ("flac", "libopus", "aac", "mp3")),
             "webm": (("libvpx-vp9", "libsvtav1"), ("libopus",)),
+            "mov": (("png",), ("aac",)),
         }
         self.gridLayout.addWidget(
             self.bind("containerLabel", ClickLabel()), gridRow, 0)
@@ -1112,9 +1113,11 @@ class Ui_MainWindow(QMainWindow):
 
     def color_choose_button(self):
         result = QColorDialog.getColor(
-            initial=QColor.fromString(self.colorText.text()))
+            initial=QColor.fromString(self.colorText.text()),
+            options = QColorDialog.ColorDialogOption.ShowAlphaChannel
+          )
         if result.isValid():
-            self.colorText.setText(result.name())
+            self.colorText.setText(result.name(QColor.HexArgb) if result.alpha() < 255 else result.name())
 
     def remove_files_button(self):
         # remove from the end to avoid re-order
@@ -1138,13 +1141,42 @@ class Ui_MainWindow(QMainWindow):
         textcolor = "#000000"
         if bgcolor.lightness() <= 128:
             textcolor = "#FFFFFF"
-        self.colorText.setStyleSheet(f"color: {textcolor}; background-color: {bgcolor.name()}")
+        bgcolor_rgbf = bgcolor.getRgbF()[0:3]
+        # If I calculated right, bgcolor_dark/bgcolor_light are the color including alpha on top of 25%/75% gray backgrounds
+        # I couldn't figure out a way to get the normal checkerboard thing
+        bgcolor_dark = QColor.fromRgbF(*(c * bgcolor.alphaF() + 0.25 * (1 - bgcolor.alphaF()) for c in bgcolor_rgbf)).name()
+        bgcolor_light = QColor.fromRgbF(*(1 + bgcolor.alphaF() * (c - 1) - 0.25 * (1 - bgcolor.alphaF()) for c in bgcolor_rgbf)).name()
+        self.colorText.setStyleSheet(f"""
+                                        color: {textcolor}; background: qlineargradient(
+                                                                         x1:0, y1:0, x2:1, y2: 0,
+                                                                         stop:0 {bgcolor_dark},
+                                                                         stop:0.075 {bgcolor_dark},
+                                                                         stop:0.07501 {bgcolor_light},
+                                                                         stop:0.15 {bgcolor_light},
+                                                                         stop:0.15001 {bgcolor_dark},
+                                                                         stop:0.225 {bgcolor_dark},
+                                                                         stop:0.22501 {bgcolor_light},
+                                                                         stop:0.3 {bgcolor_light},
+                                                                         stop:0.30001 {bgcolor.name()},
+                                                                         stop:1 {bgcolor.name()}
+                                                                         )
+                                     """)
 
     def updateCodecs(self):
         for idx, box in enumerate((self.vcodecBox, self.acodecBox)):
             box.setMaxCount(0)
             box.setMaxCount(10)
             box.addItems(self.containerOptions[self.containerBox.currentText()][idx])
+            if box == self.acodecBox:
+                box.addItem("None")
+        if self.containerBox.currentText() == "mov":
+            self.old_lossless_state = self.lossless.checkState()
+            self.lossless.setChecked(True)
+            self.lossless.setEnabled(False)
+        elif hasattr(self, "old_lossless_state"):
+            self.lossless.setEnabled(True)
+            self.lossless.setCheckState(self.old_lossless_state)
+            del self.old_lossless_state
 
     def output_dir(self):
         outputdir = QFileDialog.getExistingDirectory(self, dir=os.path.dirname(self.outputDir.text()))
@@ -1406,6 +1438,7 @@ class Ui_MainWindow(QMainWindow):
             audio = self.tableWidget.filename(row, TrackTableColumn.Audio.value)
             background = self.tableWidget.filename(row, TrackTableColumn.Background.value)
             advanced = self.tableWidget.item(row, TrackTableColumn.Advanced.value).data(Qt.UserRole) or {}
+            use_alpha = False
             print(f"Retrieved Advanced settings for {kbp}:")
             print(advanced)
             if not kbp:
@@ -1417,6 +1450,8 @@ class Ui_MainWindow(QMainWindow):
                 background = default_bg
             elif background.startswith("color:"):
                 background = background[6:].strip(" #")
+                if len(background) == 8:
+                    use_alpha = True
                 background_type = 0
             else:
                 background_type = 1
@@ -1515,7 +1550,7 @@ class Ui_MainWindow(QMainWindow):
                         audio_bitrate = self.abitrateBox.value(),
                         **advanced_params,
                         output_options = {
-                                "pix_fmt": "yuv420p",
+                                "pix_fmt": "rgba" if self.vcodecBox.currentText() == "png" else "yuva420p" if use_alpha else "yuv420p",
                                 "hide_banner": None,
                                 "progress": "-",
                                 "loglevel": "warning"
