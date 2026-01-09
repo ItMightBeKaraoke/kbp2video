@@ -1533,11 +1533,19 @@ class Ui_MainWindow(QMainWindow):
                         (k.startswith('outro') and advanced['outro_enable'])) 
                     and not k.endswith('_enable')}
 
+            if self.acodecBox.currentText() != "None":
+                audio_opts = {
+                        "audio_file": audio,
+                        "audio_codec": self.acodecBox.currentText(),
+                        "audio_bitrate": self.abitrateBox.value(),
+                    }
+            else:
+                audio_opts = {}
+
             converter = kbputils.VideoConverter(
                         assfile,
                         self.vidFile(kbp),
                         preview = True,
-                        audio_file = audio,
                         aspect_ratio = kbputils.Ratio(*ratio),
                         target_x = resolution.split('x')[0],
                         target_y = resolution.split('x')[1],
@@ -1546,8 +1554,7 @@ class Ui_MainWindow(QMainWindow):
                         media_container = container,
                         video_codec = self.vcodecBox.currentText(),
                         video_quality = 0 if check2bool(self.lossless) else self.quality.value(),
-                        audio_codec = self.acodecBox.currentText(),
-                        audio_bitrate = self.abitrateBox.value(),
+                        **audio_opts,
                         **advanced_params,
                         output_options = {
                                 "pix_fmt": "rgba" if self.vcodecBox.currentText() == "png" else "yuva420p" if use_alpha else "yuv420p",
