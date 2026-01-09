@@ -39,7 +39,7 @@ with open('installer.cfg', 'w') as f:
 # Pull down an ffmpeg zip and extract it if not already present
 if not os.path.isfile('ffmpeg.zip') and not os.path.isdir('ffmpeg'):
     try:
-        urllib.request.urlretrieve('https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-full_build-shared.zip', filename='ffmpeg.zip')
+        urllib.request.urlretrieve('https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-full_build-shared.zip', filename='ffmpeg.zip')
     except:
         # Remove any partial or zero-byte zip file that may be here
         os.remove('ffmpeg.zip')
