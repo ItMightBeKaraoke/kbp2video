@@ -53,8 +53,9 @@ class ProgressWindow(QDialog):
 
     def process_progress(self, cur, rows, file, progress, total):
         # Avoid double-counting ones that were removed during initial processing
-        cur = cur - self.fatal_errors + self.file_count - rows
-        count = self.file_count - self.fatal_errors
+        #cur = cur - self.fatal_errors + self.file_count - rows
+        #count = self.file_count - self.fatal_errors
+        count = rows
         self.file_label.setText(f"Processing file {cur + 1} of {count}: {file}")
         self.file.setMaximum(total)
         self.file.setValue(progress)

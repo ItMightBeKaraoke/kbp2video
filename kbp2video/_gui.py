@@ -389,8 +389,11 @@ class DropLabel(QLabel):
                         audio_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemNeverHasChildren)
                         table.setItem(current, TrackTableColumn.Audio.value, audio_item)
                     if not table.item(current, TrackTableColumn.Background.value).text():
-                        bg_color = k.kbp_obj.colors.as_rgb24()[0]
-                        bg_item = QTableWidgetItem(f"color: #{bg_color}")
+                        if check2bool(mainWindow.useSHWBox) and k.kbp_obj.images:
+                            bg_item = QTableWidgetItem(f"slideshows: {os.path.basename(kbpassFile)}")
+                        else:
+                            bg_color = k.kbp_obj.colors.as_rgb24()[0]
+                            bg_item = QTableWidgetItem(f"color: #{bg_color}")
                         table.setItem(current, TrackTableColumn.Background.value, bg_item)
 
         if result.kbp or result.ass:
@@ -842,6 +845,10 @@ class Ui_MainWindow(QMainWindow):
         self.gridLayout.addWidget(self.bind("loopBGLabel", ClickLabel(buddy=self.loopBGBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
 
         gridRow += 1
+        self.gridLayout.addWidget(self.bind("useSHWBox", QCheckBox()), gridRow, 0, alignment=Qt.AlignRight)
+        self.gridLayout.addWidget(self.bind("useSHWLabel", ClickLabel(buddy=self.useSHWBox, buddyMethod=QCheckBox.toggle)), gridRow, 1, 1, 2)
+
+        gridRow += 1
         self.resolutionOptions = [
             "1500x1080",
             "1920x1080 (1080p)",
@@ -1211,6 +1218,7 @@ class Ui_MainWindow(QMainWindow):
             "subtitle/overflow": self.overflowBox.currentText(),
             "video/background_color": self.colorText.text(),
             "video/loop_bg": check2bool(self.loopBGBox),
+            "video/use_shw": check2bool(self.useSHWBox),
             "video/output_resolution": self.resolutionBox.currentText(),
             #"video/override_bg_resolution": check2bool(self.overrideBGResolution),
             "video/container_format_index": self.containerBox.currentIndex(),
@@ -1265,6 +1273,7 @@ class Ui_MainWindow(QMainWindow):
         self.overflowBox.setCurrentText(settings.value("subtitle/overflow", type=str, defaultValue="no wrap"))
         self.updateColor(setColor=settings.value("video/background_color", type=str, defaultValue="#000000"))
         self.loopBGBox.setCheckState(bool2check(settings.value("video/loop_bg", type=bool, defaultValue=False)))
+        self.useSHWBox.setCheckState(bool2check(settings.value("video/use_shw", type=bool, defaultValue=False)))
 
         # Restore existing or custom option
         resolution_text = settings.value("video/output_resolution", type=str, defaultValue="<NONEXISTENT>")
@@ -1348,6 +1357,10 @@ class Ui_MainWindow(QMainWindow):
     def vidFile(self, kbp):
         filename = os.path.basename(kbp)
         return self.resolved_output_dir(kbp) + "/" + filename[:-4] + "." + self.containerBox.currentText()
+
+    def slidesFile(self, kbp):
+        filename = os.path.basename(kbp)
+        return self.resolved_output_dir(kbp) + "/" + filename[:-4] + "_slides." + self.containerBox.currentText()
 
     def get_aspect_ratio(self):
         text = self.aspectRatioBox.currentText()
@@ -1453,6 +1466,8 @@ class Ui_MainWindow(QMainWindow):
                 if len(background) == 8:
                     use_alpha = True
                 background_type = 0
+            elif background.startswith("slideshows:"):
+                background_type = 2
             else:
                 background_type = 1
 
@@ -1542,6 +1557,35 @@ class Ui_MainWindow(QMainWindow):
             else:
                 audio_opts = {}
 
+            if background_type == 2:
+                background = self.slidesFile(kbp)
+                shwconverter = kbputils.SHWConverter(
+                        kbp_obj.kbp_obj,
+                        background,
+                        preview = True,
+                        target_x = resolution.split('x')[0],
+                        target_y = resolution.split('x')[1],
+                        border = kbputils.SHWBorderStyle.CDG if border else kbputils.SHWBorderStyle.NONE,
+                        media_container = container,
+                        video_codec = self.vcodecBox.currentText(),
+                        video_quality = 0 if check2bool(self.lossless) else self.quality.value() - 1, # Slightly higher quality due to reencode
+                        output_options = {
+                                "pix_fmt": "yuv420p",
+                                "hide_banner": None,
+                                "progress": "-",
+                                "loglevel": "warning"
+                            }
+                    )
+                try:
+                    ffmpeg_cmdinfo = shwconverter.run()
+                except:
+                    conversion_errors = True
+                    signals.error.emit(f"Skipped {kbp}:\nUnable to generate background command from slides\n{traceback.format_exc()}", True)
+                    continue
+                q = QProcess(program=ffmpeg_cmdinfo['args'][0], arguments=ffmpeg_cmdinfo['args'][1:])
+                q.setReadChannel(QProcess.StandardOutput)
+                ffmpeg_processes.append((f"slideshows: {kbp}", ffmpeg_cmdinfo['length'], q, ffmpeg_cmdinfo["cleanup"]))
+
             converter = kbputils.VideoConverter(
                         assfile,
                         self.vidFile(kbp),
@@ -1550,6 +1594,7 @@ class Ui_MainWindow(QMainWindow):
                         target_x = resolution.split('x')[0],
                         target_y = resolution.split('x')[1],
                         **({"background_color": background} if background_type == 0 else {"background_media": background}),
+                        disable_bginfo = True if background_type == 2 else False,
                         loop_background_video = check2bool(self.loopBGBox),
                         media_container = container,
                         video_codec = self.vcodecBox.currentText(),
@@ -1575,9 +1620,9 @@ class Ui_MainWindow(QMainWindow):
 
             q = QProcess(program=ffmpeg_cmdinfo['args'][0], arguments=ffmpeg_cmdinfo['args'][1:], workingDirectory=ffmpeg_cmdinfo['cwd'])
             q.setReadChannel(QProcess.StandardOutput)
-            ffmpeg_processes.append((kbp, ffmpeg_cmdinfo['length'], q))
+            ffmpeg_processes.append((kbp, ffmpeg_cmdinfo['length'], q, None))
 
-        for row, (kbp, song_length_ms, q) in enumerate(ffmpeg_processes):
+        for row, (kbp, song_length_ms, q, cleanup) in enumerate(ffmpeg_processes):
             q.start()
             q.waitForStarted(-1)
             while not q.waitForFinished(100):
@@ -1593,6 +1638,9 @@ class Ui_MainWindow(QMainWindow):
                             pass # TODO: maybe switch to throbber if ffmpeg isn't outputting progress properly?
                         else:
                             signals.progress.emit(row, len(ffmpeg_processes), kbp, out_time, song_length_ms)
+
+            if cleanup:
+                cleanup()
 
             if q.exitStatus() != QProcess.NormalExit or q.exitCode() != 0:
                 conversion_errors = True
@@ -1674,6 +1722,10 @@ class Ui_MainWindow(QMainWindow):
             "MainWindow", "Loop background video", None))
         self.loopBGLabel.setToolTip(QCoreApplication.translate(
             "MainWindow", "If unchecked and a background video is set, the video will play\nexactly once, to its full duration. If the duration is less than\nthe audio, the last frame will repeat.\n\nIf checked, the background video will loop as many times as needed\nto the duration of the audio (even if that is less than 1, so the\nbackground video would truncate if longer than the audio).", None))
+        self.useSHWLabel.setText(QCoreApplication.translate(
+            "MainWindow", "Experimental slideshow support", None))
+        self.useSHWLabel.setToolTip(QCoreApplication.translate(
+            "MainWindow", "If checked, any imported kbp file containing slideshows will use\nthose as the background instead of just the color specified in\nthe .kbp. This will not use the CDGs like KBS does, instead it will\nattempt to locate the SHW files and generate video for them", None))
         self.resolutionLabel.setText(QCoreApplication.translate(
             "MainWindow", "&Output Resolution", None))
         self.containerLabel.setText(QCoreApplication.translate(
